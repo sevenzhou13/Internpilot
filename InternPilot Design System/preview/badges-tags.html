@@ -1,0 +1,68 @@
+<!-- InternPilot: Badges, Status Tags & Match Score -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: var(--bg-page); padding: 20px 24px; font-family: var(--font-body); }
+.section { margin-bottom: 14px; }
+.label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 8px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.divider { height: 1px; background: var(--border-default); margin: 12px 0; }
+.match-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; font-weight: 600; font-size: 13px; }
+.match-high { background: var(--color-success-50); color: var(--color-success-700); }
+.match-med  { background: var(--color-warning-50); color: var(--color-warning-600); }
+.match-low  { background: var(--color-danger-50);  color: var(--color-danger-600);  }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-tag { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="section">
+  <div class="label">Badges</div>
+  <div class="row">
+    <span class="badge badge-primary">数据分析</span>
+    <span class="badge badge-primary">AI产品经理</span>
+    <span class="badge badge-primary">用户研究</span>
+    <span class="badge badge-neutral">上海</span>
+    <span class="badge badge-neutral">北京</span>
+    <span class="badge badge-info">全职转化</span>
+    <span class="badge badge-success">Top 选择</span>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">Match Score Pills</div>
+  <div class="row">
+    <span class="match-pill match-high"><span class="dot"></span>匹配度 88%</span>
+    <span class="match-pill match-med"><span class="dot"></span>匹配度 79%</span>
+    <span class="match-pill match-low"><span class="dot"></span>匹配度 52%</span>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">Application Status</div>
+  <div class="row">
+    <span class="status-tag" style="background:#F3F4F6;color:#6B7280">待投递</span>
+    <span class="status-tag" style="background:#EFF6FF;color:#2563EB">已投递</span>
+    <span class="status-tag" style="background:#FFFBEB;color:#D97706">面试中</span>
+    <span class="status-tag" style="background:#ECFDF5;color:#059669">已录用</span>
+    <span class="status-tag" style="background:#FEF2F2;color:#DC2626">已淘汰</span>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">Skill Tags</div>
+  <div class="row">
+    <span class="badge badge-primary">Python</span>
+    <span class="badge badge-primary">SQL</span>
+    <span class="badge badge-primary">A/B 测试</span>
+    <span class="badge badge-neutral">用户访谈</span>
+    <span class="badge badge-neutral">眼动追踪</span>
+    <span class="badge badge-warning">待补充</span>
+    <span class="badge badge-danger">缺少</span>
+  </div>
+</div>
+</body>
+</html>

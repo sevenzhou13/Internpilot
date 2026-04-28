@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InternPilot — Web App UI Kit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; overflow: hidden; }
+  body { font-family: 'Inter', sans-serif; background: #F8F9FB; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="Sidebar.jsx"></script>
+<script type="text/babel" src="Dashboard.jsx"></script>
+<script type="text/babel" src="Jobs.jsx"></script>
+<script type="text/babel" src="JobDetail.jsx"></script>
+<script type="text/babel" src="ExperienceLibrary.jsx"></script>
+<script type="text/babel" src="ResumeGenerator.jsx"></script>
+<script type="text/babel" src="InterviewPrep.jsx"></script>
+<script type="text/babel" src="AIAssistant.jsx"></script>
+
+<script type="text/babel">
+function App() {
+  const [screen, setScreen] = React.useState("dashboard");
+  const [selectedJob, setSelectedJob] = React.useState(null);
+
+  const handleNav = (id) => {
+    setScreen(id);
+    setSelectedJob(null);
+  };
+
+  const handleJobDetail = (job) => {
+    setSelectedJob(job);
+    setScreen("jobDetail");
+  };
+
+  const handleResume = (job) => {
+    setSelectedJob(job);
+    setScreen("resume");
+  };
+
+  const handleInterview = (job) => {
+    setSelectedJob(job);
+    setScreen("interview");
+  };
+
+  const renderScreen = () => {
+    switch (screen) {
+      case "dashboard":    return <Dashboard onNav={handleNav} />;
+      case "jobs":         return <Jobs onDetail={handleJobDetail} onResume={handleResume} onInterview={handleInterview} />;
+      case "jobDetail":    return <JobDetail job={selectedJob} onResume={handleResume} onInterview={handleInterview} onBack={() => setScreen("jobs")} />;
+      case "experiences":  return <ExperienceLibrary />;
+      case "resume":       return <ResumeGenerator job={selectedJob} />;
+      case "interview":    return <InterviewPrep job={selectedJob} />;
+      case "ai":           return <AIAssistant />;
+      default:             return <Dashboard onNav={handleNav} />;
+    }
+  };
+
+  const screenToNav = {
+    "dashboard": "dashboard",
+    "jobs": "jobs",
+    "jobDetail": "jobs",
+    "experiences": "experiences",
+    "resume": "resume",
+    "interview": "interview",
+    "ai": "ai",
+  };
+
+  return (
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <Sidebar active={screenToNav[screen]} onNav={handleNav} />
+      {renderScreen()}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

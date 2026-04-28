@@ -1,0 +1,42 @@
+<!-- InternPilot: Semantic Colors -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: var(--bg-page); padding: 20px; font-family: var(--font-body); }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.semantic { border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,0.06); }
+.swatch-top { height: 52px; }
+.swatch-light { height: 36px; }
+.info { padding: 8px 10px; background: #fff; }
+.name { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.val { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="semantic">
+    <div class="swatch-top" style="background:#10B981"></div>
+    <div class="swatch-light" style="background:#ECFDF5"></div>
+    <div class="info"><div class="name">Success</div><div class="val">#10B981</div></div>
+  </div>
+  <div class="semantic">
+    <div class="swatch-top" style="background:#F59E0B"></div>
+    <div class="swatch-light" style="background:#FFFBEB"></div>
+    <div class="info"><div class="name">Warning</div><div class="val">#F59E0B</div></div>
+  </div>
+  <div class="semantic">
+    <div class="swatch-top" style="background:#EF4444"></div>
+    <div class="swatch-light" style="background:#FEF2F2"></div>
+    <div class="info"><div class="name">Danger</div><div class="val">#EF4444</div></div>
+  </div>
+  <div class="semantic">
+    <div class="swatch-top" style="background:#3B82F6"></div>
+    <div class="swatch-light" style="background:#EFF6FF"></div>
+    <div class="info"><div class="name">Info</div><div class="val">#3B82F6</div></div>
+  </div>
+</div>
+</body>
+</html>

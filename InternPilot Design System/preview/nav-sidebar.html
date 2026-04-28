@@ -1,0 +1,81 @@
+<!-- InternPilot: Navigation Sidebar -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: var(--bg-page); padding: 0; font-family: var(--font-body); display: flex; }
+.sidebar {
+  width: 240px; min-height: 400px; background: #fff;
+  border-right: 1px solid var(--border-default);
+  display: flex; flex-direction: column; padding: 16px 0;
+}
+.logo { padding: 4px 16px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border-default); margin-bottom: 8px; }
+.logo-mark { width: 28px; height: 28px; background: var(--color-primary-500); border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+.logo-mark svg { color: #fff; }
+.logo-text { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.logo-text span { color: var(--color-primary-500); }
+.nav-section { padding: 0 8px; margin-bottom: 4px; }
+.nav-label { font-size: 10px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 8px 4px; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms, color 120ms; margin-bottom: 1px;
+}
+.nav-item:hover { background: var(--color-gray-100); color: var(--text-primary); }
+.nav-item.active { background: var(--color-primary-50); color: var(--color-primary-700); font-weight: 600; }
+.nav-item svg { flex-shrink: 0; opacity: 0.7; }
+.nav-item.active svg { opacity: 1; }
+.badge-count { margin-left: auto; background: var(--color-primary-100); color: var(--color-primary-700); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 9999px; }
+.user { margin-top: auto; padding: 12px 16px 4px; border-top: 1px solid var(--border-default); display: flex; align-items: center; gap: 8px; }
+.avatar { width: 28px; height: 28px; border-radius: 9999px; background: var(--color-primary-100); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--color-primary-600); }
+.username { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.usersub { font-size: 11px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+    </div>
+    <div class="logo-text">Intern<span>Pilot</span></div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-item active">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="7" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+      岗位推荐
+      <span class="badge-count">8</span>
+    </div>
+    <div class="nav-item">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      经历素材库
+    </div>
+    <div class="nav-item">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      简历生成
+    </div>
+    <div class="nav-item">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      面试准备
+    </div>
+    <div class="nav-item">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      AI 助手
+    </div>
+  </div>
+  <div class="user">
+    <div class="avatar">李</div>
+    <div>
+      <div class="username">李同学</div>
+      <div class="usersub">传播学研究生</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

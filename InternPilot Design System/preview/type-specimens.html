@@ -1,0 +1,51 @@
+<!-- InternPilot: Font Family Specimens -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: #fff; padding: 20px 24px; font-family: var(--font-body); }
+.block { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--border-default); }
+.block:last-child { border-bottom: none; margin-bottom: 0; }
+.tag { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 6px; }
+.sample-en { font-size: 22px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.sample-zh { font-size: 20px; font-weight: 500; color: var(--text-primary); line-height: 1.4; margin-top: 2px; }
+.weights { display: flex; gap: 20px; margin-top: 6px; }
+.w { font-size: 13px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="block">
+  <div class="tag">--font-display: Plus Jakarta Sans</div>
+  <div class="sample-en" style="font-family:var(--font-display)">InternPilot — Smart Career AI</div>
+  <div class="sample-zh" style="font-family:var(--font-display)">个人化实习推荐系统</div>
+  <div class="weights">
+    <span class="w" style="font-family:var(--font-display);font-weight:400">Regular</span>
+    <span class="w" style="font-family:var(--font-display);font-weight:500">Medium</span>
+    <span class="w" style="font-family:var(--font-display);font-weight:600">SemiBold</span>
+    <span class="w" style="font-family:var(--font-display);font-weight:700">Bold</span>
+    <span class="w" style="font-family:var(--font-display);font-weight:800">ExtraBold</span>
+  </div>
+</div>
+<div class="block">
+  <div class="tag">--font-body: Inter</div>
+  <div class="sample-en" style="font-family:var(--font-body);font-size:18px">Internship match score: 88%</div>
+  <div class="sample-zh" style="font-family:var(--font-body);font-size:16px">根据 JD 关键词与你的经历计算匹配度</div>
+  <div class="weights">
+    <span class="w" style="font-family:var(--font-body);font-weight:400">Regular</span>
+    <span class="w" style="font-family:var(--font-body);font-weight:500">Medium</span>
+    <span class="w" style="font-family:var(--font-body);font-weight:600">SemiBold</span>
+    <span class="w" style="font-family:var(--font-body);font-weight:700">Bold</span>
+  </div>
+</div>
+<div class="block">
+  <div class="tag">--font-mono: JetBrains Mono</div>
+  <div class="sample-en" style="font-family:var(--font-mono);font-size:14px;font-weight:400">{ "match": 88, "role": "数据分析实习生" }</div>
+  <div class="weights">
+    <span class="w" style="font-family:var(--font-mono);font-weight:400">Regular</span>
+    <span class="w" style="font-family:var(--font-mono);font-weight:500">Medium</span>
+  </div>
+</div>
+</body>
+</html>

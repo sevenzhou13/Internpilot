@@ -1,0 +1,63 @@
+<!-- InternPilot: Button Variants & States -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: var(--bg-page); padding: 20px 24px; font-family: var(--font-body); }
+.section { margin-bottom: 16px; }
+.label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 8px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+button { cursor: pointer; }
+.divider { height: 1px; background: var(--border-default); margin: 14px 0; }
+</style>
+</head>
+<body>
+<div class="section">
+  <div class="label">Variants</div>
+  <div class="row">
+    <button class="btn btn-primary btn-md">生成简历</button>
+    <button class="btn btn-secondary btn-md">查看详情</button>
+    <button class="btn btn-outline btn-md">保存草稿</button>
+    <button class="btn btn-ghost btn-md">取消</button>
+    <button class="btn btn-danger btn-md">删除经历</button>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">Sizes</div>
+  <div class="row">
+    <button class="btn btn-primary btn-sm">小按钮 sm</button>
+    <button class="btn btn-primary btn-md">中按钮 md</button>
+    <button class="btn btn-primary btn-lg">大按钮 lg</button>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">With Icon</div>
+  <div class="row">
+    <button class="btn btn-primary btn-md">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      添加经历
+    </button>
+    <button class="btn btn-outline btn-md">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      AI 求职助手
+    </button>
+    <button class="btn btn-secondary btn-md">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      搜索岗位
+    </button>
+  </div>
+</div>
+<div class="divider"></div>
+<div class="section">
+  <div class="label">Disabled</div>
+  <div class="row">
+    <button class="btn btn-primary btn-md" disabled style="opacity:0.4;cursor:not-allowed">生成简历</button>
+    <button class="btn btn-outline btn-md" disabled style="opacity:0.4;cursor:not-allowed">查看详情</button>
+  </div>
+</div>
+</body>
+</html>

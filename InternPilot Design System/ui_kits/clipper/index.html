@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>InternPilot Clipper</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #E5E7EB;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 9999px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const MOCK_PAGE = {
+  title: "数据分析实习生 - 小红书 - 实习僧",
+  url: "https://www.shixiseng.com/intern/inn_xxx",
+  company: "小红书",
+  role: "数据分析实习生",
+  location: "上海",
+  salary: "500–700 元/天",
+  duration: "3–6 个月",
+  summary: "负责平台核心数据指标的监控与分析，使用 Python/SQL 完成数据提取，支持 A/B 实验设计，输出业务数据报告。",
+  tags: ["Python", "SQL", "A/B测试", "数据可视化"],
+};
+
+function ClipperApp() {
+  const [state, setState] = React.useState("idle"); // idle | analyzing | saved | error
+  const [tab, setTab] = React.useState("summary");
+  const [copied, setCopied] = React.useState(false);
+
+  const handleSave = () => {
+    setState("saved");
+  };
+
+  const handleSaveAnalyze = () => {
+    setState("analyzing");
+    setTimeout(() => setState("saved"), 1800);
+  };
+
+  const handleCopy = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const jsonData = JSON.stringify({
+    company: MOCK_PAGE.company,
+    role: MOCK_PAGE.role,
+    location: MOCK_PAGE.location,
+    salary: MOCK_PAGE.salary,
+    tags: MOCK_PAGE.tags,
+    url: MOCK_PAGE.url,
+    savedAt: new Date().toISOString(),
+  }, null, 2);
+
+  return (
+    <div style={{
+      width: 360, background: "#fff", borderRadius: 14,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08)",
+      overflow: "hidden", display: "flex", flexDirection: "column",
+    }}>
+      {/* Header */}
+      <div style={{ background: "#6366F1", padding: "14px 16px 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{ width: 22, height: 22, background: "rgba(255,255,255,0.2)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 14, fontWeight: 800, color: "#fff", letterSpacing: -0.2 }}>InternPilot</span>
+            <span style={{ fontSize: 10, background: "rgba(255,255,255,0.2)", color: "#fff", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>Clipper</span>
+          </div>
+          {state === "saved" && (
+            <span style={{ fontSize: 11, background: "#10B981", color: "#fff", padding: "2px 8px", borderRadius: 9999, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+              已保存
+            </span>
+          )}
+          {state === "analyzing" && (
+            <span style={{ fontSize: 11, background: "rgba(255,255,255,0.2)", color: "#fff", padding: "2px 8px", borderRadius: 9999, fontWeight: 600 }}>
+              分析中…
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Page info */}
+      <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid #F3F4F6" }}>
+        <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          🔗 {MOCK_PAGE.url}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {MOCK_PAGE.title}
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ display: "flex", borderBottom: "1px solid #F3F4F6", background: "#FAFAFA" }}>
+        {[{ id: "summary", label: "岗位摘要" }, { id: "json", label: "JSON 数据" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            flex: 1, padding: "8px 0", border: "none", background: "transparent", cursor: "pointer",
+            fontSize: 12, fontWeight: tab === t.id ? 600 : 500,
+            color: tab === t.id ? "#6366F1" : "#9CA3AF",
+            fontFamily: "Inter, sans-serif",
+            borderBottom: tab === t.id ? "2px solid #6366F1" : "2px solid transparent",
+            transition: "all 120ms",
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: "14px 14px 10px", minHeight: 200 }}>
+        {tab === "summary" ? (
+          <>
+            {/* Job details */}
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 12 }}>
+              <div style={{ width: 36, height: 36, background: "#EEF2FF", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="20" height="14" x="2" y="7" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 14, fontWeight: 700, color: "#111827" }}>{MOCK_PAGE.role}</div>
+                <div style={{ fontSize: 12, color: "#6B7280", marginTop: 1 }}>{MOCK_PAGE.company} · {MOCK_PAGE.location}</div>
+                <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 1 }}>{MOCK_PAGE.salary} · {MOCK_PAGE.duration}</div>
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+              {MOCK_PAGE.tags.map(t => (
+                <span key={t} style={{ background: "#EEF2FF", color: "#4338CA", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 9999 }}>{t}</span>
+              ))}
+            </div>
+
+            {/* Summary */}
+            <div style={{ background: "#F9FAFB", borderRadius: 8, padding: "9px 10px", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>岗位摘要</div>
+              <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.6 }}>{MOCK_PAGE.summary}</div>
+            </div>
+
+            {/* Match preview */}
+            {state === "saved" && (
+              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "9px 10px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+                <div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#047857" }}>预估匹配度 88%</span>
+                  <span style={{ fontSize: 11, color: "#6B7280", marginLeft: 6 }}>已加入求职库，可查看完整分析</span>
+                </div>
+              </div>
+            )}
+
+            {state === "analyzing" && (
+              <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "9px 10px", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 14, height: 14, border: "2px solid #6366F1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}></div>
+                <span style={{ fontSize: 12, color: "#4338CA", fontWeight: 500 }}>正在分析岗位 JD 与你的经历匹配度…</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ background: "#1F2937", borderRadius: 8, padding: "12px", overflowX: "auto" }}>
+            <pre style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: "#E5E7EB", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{jsonData}</pre>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div style={{ padding: "10px 14px 14px", borderTop: "1px solid #F3F4F6", display: "flex", flexDirection: "column", gap: 7 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+          <button onClick={handleSave} style={{
+            padding: "8px 0", borderRadius: 8, border: "1px solid #E5E7EB",
+            background: state === "saved" ? "#F9FAFB" : "#fff", cursor: "pointer",
+            fontSize: 12, fontWeight: 600, color: state === "saved" ? "#9CA3AF" : "#374151",
+            fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            transition: "all 120ms",
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            {state === "saved" ? "已保存" : "保存到求职库"}
+          </button>
+          <button onClick={handleSaveAnalyze} style={{
+            padding: "8px 0", borderRadius: 8, border: "none",
+            background: state === "analyzing" ? "#4F46E5" : "#6366F1",
+            cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#fff",
+            fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            transition: "all 120ms",
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            保存并分析
+          </button>
+        </div>
+        <button onClick={handleCopy} style={{
+          padding: "7px 0", borderRadius: 8, border: "1px solid #E5E7EB",
+          background: copied ? "#ECFDF5" : "#fff", cursor: "pointer",
+          fontSize: 12, fontWeight: 500, color: copied ? "#047857" : "#9CA3AF",
+          fontFamily: "Inter, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+          transition: "all 120ms",
+        }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          {copied ? "已复制！" : "复制 JSON"}
+        </button>
+      </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ClipperApp />);
+</script>
+</body>
+</html>

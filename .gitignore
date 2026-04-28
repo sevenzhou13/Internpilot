@@ -1,0 +1,15 @@
+.env
+.streamlit/secrets.toml
+data/internpilot.db
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+dist/
+build/
+# 旧 Streamlit 页面（已迁移到 FastAPI+React）
+pages/
+app.py
+# 重复的压缩包
+*.zip

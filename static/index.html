@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InternPilot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; overflow: hidden; }
+  body { font-family: 'Inter', sans-serif; background: #F8F9FB; -webkit-font-smoothing: antialiased; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+  .md h1,.md h2,.md h3 { font-family:'Plus Jakarta Sans',sans-serif; font-weight:700; color:#111827; margin:14px 0 6px; }
+  .md h1 { font-size:17px; } .md h2 { font-size:15px; } .md h3 { font-size:13.5px; }
+  .md p { margin:6px 0; line-height:1.75; }
+  .md ul,.md ol { padding-left:18px; margin:6px 0; }
+  .md li { margin:3px 0; line-height:1.7; }
+  .md strong { font-weight:600; color:#111827; }
+  .md hr { border:none; border-top:1px solid #E5E7EB; margin:12px 0; }
+  .md code { background:#F3F4F6; border-radius:4px; padding:1px 5px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="/Sidebar.jsx"></script>
+<script type="text/babel" src="/Dashboard.jsx"></script>
+<script type="text/babel" src="/Jobs.jsx"></script>
+<script type="text/babel" src="/JobDetail.jsx"></script>
+<script type="text/babel" src="/ExperienceLibrary.jsx"></script>
+<script type="text/babel" src="/ResumeGenerator.jsx"></script>
+<script type="text/babel" src="/InterviewPrep.jsx"></script>
+<script type="text/babel" src="/AIAssistant.jsx"></script>
+<script type="text/babel" src="/Profile.jsx"></script>
+
+<script type="text/babel">
+function App() {
+  const [screen, setScreen] = React.useState("dashboard");
+  const [selectedJob, setSelectedJob] = React.useState(null);
+  const { jobs, experiences, profile, refresh, llmOk } = React.useContext(AppContext);
+
+  const handleNav = (id) => { setScreen(id); setSelectedJob(null); };
+  const handleJobDetail = (job) => { setSelectedJob(job); setScreen("jobDetail"); };
+  const handleResume = (job) => { setSelectedJob(job); setScreen("resume"); };
+  const handleInterview = (job) => { setSelectedJob(job); setScreen("interview"); };
+
+  const screenToNav = { dashboard:"dashboard", jobs:"jobs", jobDetail:"jobs", experiences:"experiences", resume:"resume", interview:"interview", ai:"ai", profile:"profile" };
+
+  const renderScreen = () => {
+    switch (screen) {
+      case "dashboard":   return <Dashboard onNav={handleNav} />;
+      case "jobs":        return <Jobs onDetail={handleJobDetail} onResume={handleResume} onInterview={handleInterview} />;
+      case "jobDetail":   return <JobDetail job={selectedJob} onResume={handleResume} onInterview={handleInterview} onBack={() => setScreen("jobs")} />;
+      case "experiences": return <ExperienceLibrary />;
+      case "resume":      return <ResumeGenerator job={selectedJob} />;
+      case "interview":   return <InterviewPrep job={selectedJob} />;
+      case "ai":          return <AIAssistant />;
+      case "profile":     return <Profile />;
+      default:            return <Dashboard onNav={handleNav} />;
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <Sidebar active={screenToNav[screen] || screen} onNav={handleNav} />
+      {renderScreen()}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(
+  <AppProvider>
+    <App />
+  </AppProvider>
+);
+</script>
+</body>
+</html>

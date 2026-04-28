@@ -1,0 +1,69 @@
+<!-- InternPilot: Card Variants -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+body { background: var(--bg-page); padding: 20px 24px; font-family: var(--font-body); }
+.label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat-card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow-sm); }
+.stat-num { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+.stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.stat-delta { font-size: 11px; font-weight: 500; color: var(--color-success-600); margin-top: 6px; }
+.job-card { background: #fff; border: 1px solid var(--border-default); border-radius: 12px; padding: 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 8px; }
+.company { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.role { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.match-bar { height: 4px; background: var(--color-gray-100); border-radius: 9999px; overflow: hidden; }
+.match-fill { height: 100%; border-radius: 9999px; }
+.actions { display: flex; gap: 6px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="label">Stat Cards</div>
+<div class="grid" style="margin-bottom:16px">
+  <div class="stat-card">
+    <div class="stat-num">24</div>
+    <div class="stat-label">收藏岗位</div>
+    <div class="stat-delta">↑ 3 本周新增</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" style="color:var(--color-primary-500)">8</div>
+    <div class="stat-label">高匹配岗位 ≥80%</div>
+    <div class="stat-delta">↑ 1 今日新增</div>
+  </div>
+</div>
+<div class="label">Job Cards</div>
+<div class="grid">
+  <div class="job-card">
+    <div class="company">小红书</div>
+    <div class="role">数据分析实习生</div>
+    <div class="tags">
+      <span class="badge badge-neutral">上海</span>
+      <span class="badge badge-neutral">3个月+</span>
+      <span class="match-pill" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;background:#ECFDF5;color:#047857;font-size:11px;font-weight:600">88%</span>
+    </div>
+    <div class="match-bar"><div class="match-fill" style="width:88%;background:var(--color-success-500)"></div></div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm">生成简历</button>
+      <button class="btn btn-outline btn-sm">查看详情</button>
+    </div>
+  </div>
+  <div class="job-card">
+    <div class="company">字节跳动</div>
+    <div class="role">AI 产品实习生</div>
+    <div class="tags">
+      <span class="badge badge-neutral">北京</span>
+      <span class="match-pill" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;background:#ECFDF5;color:#047857;font-size:11px;font-weight:600">84%</span>
+    </div>
+    <div class="match-bar"><div class="match-fill" style="width:84%;background:var(--color-success-500)"></div></div>
+    <div class="actions">
+      <button class="btn btn-primary btn-sm">生成简历</button>
+      <button class="btn btn-outline btn-sm">查看详情</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

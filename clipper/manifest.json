@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "InternPilot Clipper",
+  "version": "1.0",
+  "description": "一键保存招聘岗位到本地 InternPilot",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://localhost:8000/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "InternPilot Clipper"
+  }
+}
