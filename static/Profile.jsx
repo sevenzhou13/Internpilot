@@ -20,6 +20,7 @@ function Profile() {
     internship_duration: profile?.internship_duration || "",
     available_start_date: profile?.available_start_date || "",
     notes: profile?.notes || "",
+    seeking_type: profile?.seeking_type || "",
   });
 
   React.useEffect(() => {
@@ -31,6 +32,7 @@ function Profile() {
       internship_duration: profile.internship_duration || "",
       available_start_date: profile.available_start_date || "",
       notes: profile.notes || "",
+      seeking_type: profile.seeking_type || "",
     });
   }, [profile]);
 
@@ -52,6 +54,7 @@ function Profile() {
         internship_duration: form.internship_duration,
         available_start_date: form.available_start_date,
         notes: form.notes,
+        seeking_type: form.seeking_type,
       }),
     });
     await refresh();
@@ -103,6 +106,18 @@ function Profile() {
             <div>
               <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginBottom:6 }}>可开始实习时间</div>
               <input style={inp} value={form.available_start_date} onChange={e=>setForm(f=>({...f,available_start_date:e.target.value}))} placeholder="例：2026年6月" />
+            </div>
+          </div>
+
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:"#374151", marginBottom:8 }}>求职类型</div>
+            <div style={{ display:"flex", gap:8 }}>
+              {["应届校招","日常实习","两者均可"].map(t => (
+                <button key={t} onClick={() => setForm(f=>({...f, seeking_type: f.seeking_type===t?"":t}))}
+                  style={{ padding:"6px 16px", borderRadius:9999, border:`1.5px solid ${form.seeking_type===t?"#6366F1":"#E5E7EB"}`, background:form.seeking_type===t?"#EEF2FF":"#fff", color:form.seeking_type===t?"#4338CA":"#6B7280", fontSize:13, cursor:"pointer", fontFamily:"Inter,sans-serif", fontWeight:form.seeking_type===t?600:400, transition:"all 100ms" }}>
+                  {t}
+                </button>
+              ))}
             </div>
           </div>
 

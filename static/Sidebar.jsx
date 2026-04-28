@@ -11,6 +11,7 @@ function AppProvider({ children }) {
   const [profile, setProfile] = React.useState(null);
   const [llmOk, setLlmOk] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [matchStatus, setMatchStatus] = React.useState("idle"); // idle | running | done
 
   const refresh = React.useCallback(async () => {
     try {
@@ -33,10 +34,31 @@ function AppProvider({ children }) {
     }
   }, []);
 
+  // 快速重算分数（经历变动后自动触发）
+  const refreshMatchScores = React.useCallback(async () => {
+    try {
+      await fetch("/api/jobs/match-scores", { method: "POST" });
+      await refresh();
+    } catch {}
+  }, [refresh]);
+
+  // 完整匹配（含 LLM 推荐理由）
+  const runMatchAll = React.useCallback(async () => {
+    setMatchStatus("running");
+    try {
+      await fetch("/api/jobs/match-all", { method: "POST" });
+      await refresh();
+      setMatchStatus("done");
+      setTimeout(() => setMatchStatus("idle"), 3000);
+    } catch {
+      setMatchStatus("idle");
+    }
+  }, [refresh]);
+
   React.useEffect(() => { refresh(); }, []);
 
   return (
-    <AppContext.Provider value={{ jobs, experiences, education, profile, llmOk, loading, refresh }}>
+    <AppContext.Provider value={{ jobs, experiences, education, profile, llmOk, loading, refresh, refreshMatchScores, matchStatus, runMatchAll }}>
       {loading ? (
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", color:"#9CA3AF", fontFamily:"Inter,sans-serif", fontSize:14 }}>
           加载中...
@@ -166,16 +188,16 @@ function useToast() {
 // ── 侧边栏 ─────────────────────────────────────────────────────────────────────
 
 const NAV = [
-  { id:"dashboard",   label:"Dashboard",  icon:"M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" },
+  { id:"dashboard",   label:"求职控制台",  icon:"M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" },
   { id:"jobs",        label:"岗位推荐",    icon:"M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 3H8L6 7h12l-2-4z" },
-  { id:"experiences", label:"个人背景库",  icon:"M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" },
+  { id:"experiences", label:"个人背景",  icon:"M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" },
   { id:"resume",      label:"简历生成",    icon:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" },
   { id:"interview",   label:"面试准备",    icon:"M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" },
   { id:"ai",          label:"AI 助手",     icon:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" },
 ];
 
 function Sidebar({ active, onNav }) {
-  const { jobs, llmOk } = React.useContext(AppContext);
+  const { jobs, llmOk, matchStatus } = React.useContext(AppContext);
   const highMatch = jobs.filter(j => (j.match_score||0) >= 80).length;
 
   return (
@@ -207,7 +229,10 @@ function Sidebar({ active, onNav }) {
             <div key={item.id} onClick={() => onNav(item.id)} style={{ display:"flex", alignItems:"center", gap:9, padding:"7px 9px", borderRadius:8, cursor:"pointer", marginBottom:1, background: isActive?"#EEF2FF":"transparent", color: isActive?"#4338CA":"#6B7280", fontFamily:"Inter,sans-serif", fontSize:13, fontWeight: isActive?600:500, transition:"all 120ms" }}>
               <Icon d={item.icon} size={14} color={isActive?"#6366F1":"#9CA3AF"} />
               <span style={{ flex:1 }}>{item.label}</span>
-              {item.id === "jobs" && highMatch > 0 && (
+              {item.id === "jobs" && matchStatus === "running" && (
+                <span style={{ width:8, height:8, borderRadius:"50%", background:"#F59E0B", display:"inline-block", animation:"pulse 1.2s infinite" }} />
+              )}
+              {item.id === "jobs" && matchStatus !== "running" && highMatch > 0 && (
                 <span style={{ background:"#EEF2FF", color:"#4338CA", fontSize:10, fontWeight:700, padding:"1px 6px", borderRadius:9999 }}>{highMatch}</span>
               )}
             </div>
@@ -240,4 +265,47 @@ const styleEl = document.createElement("style");
 styleEl.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
 document.head.appendChild(styleEl);
 
-Object.assign(window, { AppContext, AppProvider, Badge, MatchPill, StatusTag, Btn, MatchBar, Icon, Spinner, useToast, Sidebar });
+// ── 自定义确认弹窗 ─────────────────────────────────────────────────────────────
+
+function ConfirmModal({ title, message, confirmText = "确认删除", confirmColor = "#EF4444", onConfirm, onCancel }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ background:"#fff", borderRadius:14, padding:"24px 28px", width:360, boxShadow:"0 16px 40px rgba(0,0,0,0.18)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+          <div style={{ width:36, height:36, borderRadius:"50%", background:"#FEF2F2", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </div>
+          <h4 style={{ fontFamily:"'Plus Jakarta Sans',sans-serif", fontSize:15, fontWeight:700, color:"#111827" }}>{title || "确认操作"}</h4>
+        </div>
+        <p style={{ fontSize:13, color:"#6B7280", lineHeight:1.6, marginBottom:20 }}>{message}</p>
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={{ padding:"8px 16px", borderRadius:8, border:"1px solid #E5E7EB", background:"#fff", color:"#374151", fontSize:13, fontWeight:500, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>取消</button>
+          <button onClick={onConfirm} style={{ padding:"8px 16px", borderRadius:8, border:"none", background:confirmColor, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"Inter,sans-serif" }}>{confirmText}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useConfirm() {
+  const [state, setState] = React.useState(null);
+  const confirm = (opts) => new Promise(resolve => {
+    const o = typeof opts === "string" ? { message: opts } : opts;
+    setState({ ...o, resolve });
+  });
+  const modal = state ? (
+    <ConfirmModal
+      title={state.title}
+      message={state.message}
+      confirmText={state.confirmText}
+      confirmColor={state.confirmColor}
+      onConfirm={() => { state.resolve(true);  setState(null); }}
+      onCancel={() =>  { state.resolve(false); setState(null); }}
+    />
+  ) : null;
+  return { confirm, ConfirmModal: modal };
+}
+
+Object.assign(window, { AppContext, AppProvider, Badge, MatchPill, StatusTag, Btn, MatchBar, Icon, Spinner, useToast, useConfirm, ConfirmModal, Sidebar });

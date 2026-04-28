@@ -271,25 +271,20 @@ function ImportModal({ onClose, onImported }) {
 }
 
 function Jobs({ onDetail, onResume, onInterview }) {
-  const { jobs, refresh, llmOk } = React.useContext(AppContext);
+  const { jobs, refresh, llmOk, matchStatus, runMatchAll } = React.useContext(AppContext);
   const { show, ToastContainer } = useToast();
+  const { confirm, ConfirmModal } = useConfirm();
   const [showImport, setShowImport] = React.useState(false);
-  const [matching, setMatching] = React.useState(false);
   const [filterRole, setFilterRole] = React.useState("全部");
   const [filterStatus, setFilterStatus] = React.useState("全部");
   const [viewMode, setViewMode] = React.useState("list"); // "list" | "kanban"
   const [search, setSearch] = React.useState("");
 
-  const runMatchAll = async () => {
-    setMatching(true);
-    const res = await fetch("/api/jobs/match-all", { method:"POST" });
-    setMatching(false);
-    if (res.ok) { await refresh(); show("匹配分已更新"); }
-    else { const d = await res.json(); show(d.detail || "匹配失败", "error"); }
-  };
+  const matching = matchStatus === "running";
 
   const deleteJob = async (id) => {
-    if (!confirm("确认删除此岗位？")) return;
+    const ok = await confirm({ title:"删除岗位", message:"确认删除此岗位？删除后无法恢复。" });
+    if (!ok) return;
     await fetch(`/api/jobs/${id}`, { method:"DELETE" });
     await refresh();
   };
@@ -369,6 +364,7 @@ function Jobs({ onDetail, onResume, onInterview }) {
       )}
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImported={refresh} />}
+      {ConfirmModal}
       <ToastContainer />
     </div>
   );

@@ -6,12 +6,14 @@
 1. 只根据给定文本提取，不要编造。
 2. 无法判断的字段填 ""。
 3. type 只能从以下选：数据分析项目、AI产品项目、用户研究项目、科研经历、实习经历、竞赛经历、其他。
-4. tools 提取技术工具名称，多个用英文逗号分隔。
-5. keywords 提取最能代表这段经历的技能关键词，多个用英文逗号分隔。
-6. target_roles 从以下选择最相关的，多个用英文逗号分隔：数据分析、AI产品、产品经理、用户研究、其他。
+4. role 填入担任的职务或角色，如：负责人、第一作者、团队leader、核心成员、实习生等；没有则填 ""。
+5. duration 填入时间段，格式如"2024.06 - 2024.09"；无法判断则填 ""。
+6. tools 提取技术工具名称，多个用英文逗号分隔。
+7. keywords 提取最能代表这段经历的技能关键词，多个用英文逗号分隔。
+8. target_roles 从以下选择最相关的，多个用英文逗号分隔：数据分析、AI产品、产品经理、用户研究、其他。
 
 原文：
 {text}
 
 输出 JSON 格式：
-{{"title":"","type":"","background":"","methods":"","tools":"","results":"","keywords":"","target_roles":"","raw_bullet":""}}
+{{"title":"","type":"","role":"","duration":"","background":"","methods":"","tools":"","results":"","keywords":"","target_roles":"","raw_bullet":""}}

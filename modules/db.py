@@ -103,6 +103,19 @@ def init_db() -> None:
             );
         """)
         conn.commit()
+        # 迁移：profile 加求职类型；experience_blocks 加职务和时间
+        for col in ["seeking_type TEXT"]:
+            try:
+                conn.execute(f"ALTER TABLE profile ADD COLUMN {col}")
+                conn.commit()
+            except Exception:
+                pass
+        for col in ["role TEXT", "duration TEXT"]:
+            try:
+                conn.execute(f"ALTER TABLE experience_blocks ADD COLUMN {col}")
+                conn.commit()
+            except Exception:
+                pass
     finally:
         conn.close()
 
@@ -156,12 +169,14 @@ def add_experience(data: dict) -> int:
     try:
         cur = conn.execute(
             """INSERT INTO experience_blocks
-               (title, type, background, methods, tools, results,
+               (title, type, role, duration, background, methods, tools, results,
                 keywords, target_roles, raw_bullet, optimized_bullet, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("title", ""),
                 data.get("type", ""),
+                data.get("role", ""),
+                data.get("duration", ""),
                 data.get("background", ""),
                 data.get("methods", ""),
                 data.get("tools", ""),
@@ -187,6 +202,24 @@ def get_all_experiences() -> List[Dict]:
             "SELECT * FROM experience_blocks ORDER BY created_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_experience(experience_id: int, data: dict) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """UPDATE experience_blocks SET
+               title=?, type=?, role=?, duration=?, background=?, methods=?, tools=?, results=?,
+               keywords=?, target_roles=?, raw_bullet=?, updated_at=?
+               WHERE id=?""",
+            (data.get("title",""), data.get("type",""), data.get("role",""), data.get("duration",""),
+             data.get("background",""), data.get("methods",""), data.get("tools",""), data.get("results",""),
+             data.get("keywords",""), data.get("target_roles",""), data.get("raw_bullet",""),
+             _now(), experience_id),
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -306,6 +339,21 @@ def update_job_parsed_fields(job_id: int, parsed: dict) -> None:
                 _now(),
                 job_id,
             ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_job(job_id: int, data: dict) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """UPDATE jobs SET company=?, title=?, location=?, role_type=?, skills=?, jd_text=?, apply_url=?, updated_at=?
+               WHERE id=?""",
+            (data.get("company",""), data.get("title",""), data.get("location",""),
+             data.get("role_type",""), data.get("skills",""), data.get("jd_text",""),
+             data.get("apply_url",""), _now(), job_id),
         )
         conn.commit()
     finally:

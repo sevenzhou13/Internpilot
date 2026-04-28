@@ -26,6 +26,8 @@
   .md strong { font-weight:600; color:#111827; }
   .md hr { border:none; border-top:1px solid #E5E7EB; margin:12px 0; }
   .md code { background:#F3F4F6; border-radius:4px; padding:1px 5px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
 </style>
 </head>
 <body>
@@ -58,7 +60,7 @@ function App() {
     switch (screen) {
       case "dashboard":   return <Dashboard onNav={handleNav} />;
       case "jobs":        return <Jobs onDetail={handleJobDetail} onResume={handleResume} onInterview={handleInterview} />;
-      case "jobDetail":   return <JobDetail job={selectedJob} onResume={handleResume} onInterview={handleInterview} onBack={() => setScreen("jobs")} />;
+      case "jobDetail":   return <JobDetail job={selectedJob} onResume={handleResume} onInterview={handleInterview} onBack={() => setScreen("jobs")} onNavigate={(job) => setSelectedJob(job)} />;
       case "experiences": return <ExperienceLibrary />;
       case "resume":      return <ResumeGenerator job={selectedJob} />;
       case "interview":   return <InterviewPrep job={selectedJob} />;

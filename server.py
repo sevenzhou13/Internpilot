@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,8 @@ from modules.clip_parser import clip_to_job_data, parse_clip_json
 from modules.db import (
     add_education,
     add_experience,
+    update_experience,
+    update_job,
     add_generated_output,
     add_job,
     add_job_from_clip,
@@ -80,11 +82,14 @@ class ProfileIn(BaseModel):
     major: str = ""
     school: str = ""
     education_level: str = ""
+    seeking_type: str = ""
 
 
 class ExperienceIn(BaseModel):
     title: str
     type: str = ""
+    role: str = ""
+    duration: str = ""
     background: str = ""
     methods: str = ""
     tools: str = ""
@@ -177,6 +182,12 @@ def api_add_experience(data: ExperienceIn):
     return {"id": exp_id}
 
 
+@app.patch("/api/experiences/{exp_id}")
+def api_update_experience(exp_id: int, data: ExperienceIn):
+    update_experience(exp_id, data.model_dump())
+    return {"ok": True}
+
+
 @app.delete("/api/experiences/{exp_id}")
 def api_delete_experience(exp_id: int):
     delete_experience(exp_id)
@@ -198,6 +209,53 @@ def api_add_education(data: EducationIn):
 def api_delete_education(edu_id: int):
     delete_education(edu_id)
     return {"ok": True}
+
+
+@app.post("/api/resume/upload")
+async def api_resume_upload(file: UploadFile = File(...)):
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in (".pdf", ".docx", ".doc", ".txt"):
+        raise HTTPException(400, detail="仅支持 .pdf、.docx、.txt 格式")
+    content = await file.read()
+    try:
+        if suffix == ".txt":
+            text = content.decode("utf-8", errors="ignore")
+        elif suffix == ".pdf":
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n".join(p.extract_text() or "" for p in reader.pages)
+        else:
+            import io
+            from docx import Document
+            doc = Document(io.BytesIO(content))
+            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    except Exception as e:
+        raise HTTPException(400, detail=f"文件解析失败：{e}")
+    if not text.strip():
+        raise HTTPException(400, detail="文件内容为空或无法提取文字（PDF 可能是扫描版）")
+    return {"text": text[:8000]}
+
+
+@app.post("/api/resume/parse")
+def api_parse_resume(data: ParseTextIn):
+    if not is_llm_configured():
+        raise HTTPException(400, detail="未配置 API Key")
+    from modules.llm_client import call_llm, load_prompt
+    template = load_prompt("resume_import_prompt.txt")
+    prompt = template.format(resume_text=data.text[:6000])
+    raw = call_llm(prompt, temperature=0.1)
+    if raw.startswith("⚠️"):
+        raise HTTPException(500, detail=raw)
+    try:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```")[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+        return json.loads(cleaned.strip())
+    except Exception:
+        raise HTTPException(500, detail="解析失败，请重试")
 
 
 @app.post("/api/experiences/parse-text")
@@ -240,6 +298,12 @@ def api_delete_job(job_id: int):
     return {"ok": True}
 
 
+@app.patch("/api/jobs/{job_id}")
+def api_update_job(job_id: int, data: JobIn):
+    update_job(job_id, data.model_dump())
+    return {"ok": True}
+
+
 @app.patch("/api/jobs/{job_id}/status")
 def api_update_status(job_id: int, data: StatusIn):
     update_job_status(job_id, data.status)
@@ -268,6 +332,24 @@ def api_import_clip(data: ClipIn):
         return {"id": job_id, "title": job_data["title"]}
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
+
+
+@app.post("/api/jobs/match-scores")
+def api_match_scores():
+    """快速匹配：只计算分数，不调 LLM，用于经历变动后自动触发。"""
+    profile = get_profile()
+    if not profile:
+        return {"updated": 0}
+    experiences = get_all_experiences()
+    if not experiences:
+        return {"updated": 0}
+    education = get_all_education()
+    jobs = get_all_jobs()
+    for job in jobs:
+        score = calculate_match_score(job, profile, experiences, education)
+        existing_reason = job.get("recommendation_reason") or ""
+        update_job_match_result(job["id"], score, existing_reason)
+    return {"updated": len(jobs)}
 
 
 @app.post("/api/jobs/match-all")
@@ -322,6 +404,65 @@ def api_parse_jd(data: ParseJDIn):
     return result
 
 
+@app.post("/api/jd/parse/stream")
+def api_parse_jd_stream(data: ParseJDIn):
+    """流式解析 JD，供插件使用。边生成边返回 token，最后一帧含完整 JSON。"""
+    if not is_llm_configured():
+        raise HTTPException(400, detail="未配置 API Key")
+    from modules.llm_client import get_llm_config, load_prompt
+    from openai import OpenAI
+
+    template = load_prompt("jd_parser_prompt.txt")
+    prompt = template.format(
+        page_title=data.page_title or "未知",
+        url=data.apply_url or "未知",
+        source_domain=data.source_domain or "未知",
+        clip_text=data.jd_text[:4000],
+    )
+    config = get_llm_config()
+    kwargs: Dict[str, Any] = {"api_key": config["api_key"]}
+    if config["base_url"]:
+        kwargs["base_url"] = config["base_url"]
+    client = OpenAI(**kwargs)
+
+    def generate() -> Generator[str, None, None]:
+        full = ""
+        try:
+            stream = client.chat.completions.create(
+                model=config["model"],
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full += delta
+                    yield f"data: {json.dumps({'chunk': delta}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        # 最后一帧发完整解析结果
+        try:
+            cleaned = full.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            parsed = json.loads(cleaned.strip())
+        except Exception:
+            parsed = {"error": "JSON解析失败", "raw": full[:200]}
+        yield f"data: {json.dumps({'done': True, 'result': parsed}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    })
+
+
 @app.post("/api/jobs/{job_id}/parse")
 def api_parse_job_jd(job_id: int):
     job = get_job_by_id(job_id)
@@ -356,6 +497,72 @@ def api_generate_resume(data: GenerateIn):
     result = generate_resume_bullets(job, experiences)
     add_generated_output(data.job_id, "resume_bullet", result)
     return {"content": result}
+
+
+@app.post("/api/generate/resume/stream")
+def api_generate_resume_stream(data: GenerateIn):
+    if not is_llm_configured():
+        raise HTTPException(400, detail="未配置 API Key")
+    job = get_job_by_id(data.job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+    all_exp = get_all_experiences()
+    experiences = [e for e in all_exp if e["id"] in data.exp_ids] if data.exp_ids else all_exp
+    if not experiences:
+        raise HTTPException(400, detail="未选择任何经历")
+
+    from modules.llm_client import get_llm_config, load_prompt
+    from modules.resume_generator import _format_experiences
+    from modules.db import get_profile
+    from openai import OpenAI
+
+    config = get_llm_config()
+    kwargs: Dict[str, Any] = {"api_key": config["api_key"]}
+    if config["base_url"]:
+        kwargs["base_url"] = config["base_url"]
+    client = OpenAI(**kwargs)
+
+    profile = get_profile() or {}
+    seeking_type = profile.get("seeking_type") or "未指定"
+    template = load_prompt("resume_prompt.txt")
+    prompt = template.format(
+        company=job.get("company") or "未知公司",
+        title=job.get("title") or "未知岗位",
+        skills=job.get("skills") or "未指定",
+        role_type=job.get("role_type") or "未知方向",
+        seeking_type=seeking_type,
+        jd_text=(job.get("jd_text") or "")[:2000],
+        experiences=_format_experiences(experiences),
+    )
+
+    def generate() -> Generator[str, None, None]:
+        full = ""
+        try:
+            stream = client.chat.completions.create(
+                model=config["model"],
+                messages=[
+                    {"role": "system", "content": "你是专业的简历优化助手，只根据用户提供的信息作答，不编造数据。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full += delta
+                    yield f"data: {json.dumps({'content': delta}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
+        if full:
+            add_generated_output(data.job_id, "resume_bullet", full)
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    })
 
 
 @app.post("/api/generate/interview")
@@ -465,6 +672,42 @@ def api_dashboard_stats():
     )[:5]
     recent = get_generated_outputs(limit=5)
     return {"stats": stats, "top_jobs": top_jobs, "recent_outputs": recent}
+
+
+@app.get("/api/generate/history/{job_id}")
+def api_generate_history(job_id: int, output_type: str = ""):
+    outputs = get_generated_outputs(job_id)
+    if output_type:
+        outputs = [o for o in outputs if o.get("output_type") == output_type]
+    return outputs
+
+
+@app.post("/api/experiences/{exp_id}/extract-keywords")
+def api_extract_keywords(exp_id: int):
+    if not is_llm_configured():
+        raise HTTPException(400, detail="未配置 API Key")
+    from modules.db import get_connection
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM experience_blocks WHERE id=?", (exp_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, detail="经历不存在")
+    exp = dict(row)
+    text = " ".join(filter(None, [exp.get("title",""), exp.get("background",""), exp.get("methods",""), exp.get("results",""), exp.get("tools","")]))
+    if not text.strip():
+        raise HTTPException(400, detail="经历内容为空，无法提取")
+    from modules.llm_client import call_llm
+    prompt = f"""从以下经历描述中提取最能代表该经历的技能关键词（10个以内），英文逗号分隔，直接输出关键词，不要解释：
+
+{text[:1500]}"""
+    result = call_llm(prompt, temperature=0.1)
+    if result.startswith("⚠️"):
+        raise HTTPException(500, detail=result)
+    # 同时写入数据库
+    update_experience(exp_id, {**exp, "keywords": result.strip()})
+    return {"keywords": result.strip()}
 
 
 @app.get("/api/llm/status")

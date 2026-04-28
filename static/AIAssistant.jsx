@@ -152,6 +152,7 @@ function AIAssistant() {
             <div key={job.id} onClick={() => setSelectedJobId(job.id)} style={{ padding:"8px 10px", borderRadius:8, cursor:"pointer", marginBottom:4, background: selectedJobId===job.id?"#EEF2FF":"transparent", border: selectedJobId===job.id?"1.5px solid #C7D2FE":"1px solid transparent", transition:"all 120ms" }}>
               <div style={{ fontSize:12, fontWeight:600, color: selectedJobId===job.id?"#4338CA":"#111827" }}>{job.company || "—"}</div>
               <div style={{ fontSize:11, color:"#9CA3AF" }}>{job.title}</div>
+              {job.skills && <div style={{ fontSize:10, color:"#C7D2FE", marginTop:2 }}>{job.skills.split(",").filter(Boolean).slice(0,2).join(" · ")}</div>}
             </div>
           ))}
         </div>

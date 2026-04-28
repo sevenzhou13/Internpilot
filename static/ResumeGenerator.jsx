@@ -1,5 +1,9 @@
 // 简历 Bullet 生成页面
 
+// 模块级：跨页面保持流式生成状态
+const _resumeState = { generating: false, jobId: null, content: "" };
+let _resumeReader = null; // 当前流的 reader，用于取消
+
 // 计算单条经历对某岗位的关键词匹配度（0-100）
 function calcExpMatch(exp, job) {
   if (!job) return 0;
@@ -56,8 +60,11 @@ function ResumeGenerator({ job: propJob }) {
   const { show, ToastContainer } = useToast();
   const [selectedJobId, setSelectedJobId] = React.useState(propJob?.id || (jobs[0]?.id ?? null));
   const [selectedExpIds, setSelectedExpIds] = React.useState(new Set());
-  const [generating, setGenerating] = React.useState(false);
-  const [result, setResult] = React.useState(null);
+  const isThisJobGenerating = _resumeState.generating && _resumeState.jobId === (propJob?.id || jobs[0]?.id || null);
+  const [generating, setGenerating] = React.useState(isThisJobGenerating);
+  const [result, setResult] = React.useState(
+    isThisJobGenerating ? _resumeState.content || null : null
+  );
 
   const job = jobs.find(j => j.id === selectedJobId) || jobs[0] || null;
 
@@ -69,11 +76,34 @@ function ResumeGenerator({ job: propJob }) {
     if (propJob?.id) setSelectedJobId(propJob.id);
   }, [propJob]);
 
+  // 切换岗位时读缓存或接管进行中的流
   React.useEffect(() => {
     if (!selectedJobId) return;
-    const cached = sessionStorage.getItem(`resume_result_${selectedJobId}`);
-    setResult(cached || null);
+    if (_resumeState.generating && _resumeState.jobId === selectedJobId) {
+      // 后台仍在生成：恢复已有内容并等待
+      setGenerating(true);
+      setResult(_resumeState.content || null);
+    } else {
+      setGenerating(false);
+      const cached = sessionStorage.getItem(`resume_result_${selectedJobId}`);
+      setResult(cached || null);
+    }
   }, [selectedJobId]);
+
+  // 轮询：后台流式生成时同步内容到 UI
+  React.useEffect(() => {
+    if (!generating || !selectedJobId) return;
+    const iv = setInterval(() => {
+      if (_resumeState.jobId === selectedJobId && _resumeState.content) {
+        setResult(_resumeState.content);
+      }
+      if (!_resumeState.generating) {
+        setGenerating(false);
+        clearInterval(iv);
+      }
+    }, 150);
+    return () => clearInterval(iv);
+  }, [generating, selectedJobId]);
 
   const toggleExp = (id) => setSelectedExpIds(prev => {
     const next = new Set(prev);
@@ -81,22 +111,78 @@ function ResumeGenerator({ job: propJob }) {
     return next;
   });
 
+  const cancelGenerate = () => {
+    if (_resumeReader) { try { _resumeReader.cancel(); } catch {} _resumeReader = null; }
+    _resumeState.generating = false;
+    setGenerating(false);
+  };
+
   const generate = async () => {
     if (!job) { show("请先选择岗位", "error"); return; }
     if (!llmOk) { show("未配置 API Key", "error"); return; }
+    _resumeState.generating = true;
+    _resumeState.jobId = job.id;
+    _resumeState.content = "";
+    sessionStorage.removeItem(`resume_result_${job.id}`);
     setGenerating(true);
     setResult(null);
-    const res = await fetch("/api/generate/resume", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ job_id: job.id, exp_ids: [...selectedExpIds] }) });
-    setGenerating(false);
-    if (res.ok) {
-      const d = await res.json();
-      setResult(d.content);
-      sessionStorage.setItem(`resume_result_${job.id}`, d.content);
-      show("生成完成");
-    } else {
-      const d = await res.json();
-      show(d.detail || "生成失败", "error");
+
+    try {
+      const res = await fetch("/api/generate/resume/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, exp_ids: [...selectedExpIds] }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        _resumeState.generating = false;
+        setGenerating(false);
+        show(d.detail || "生成失败", "error");
+        return;
+      }
+      const reader = res.body.getReader();
+      _resumeReader = reader;
+      const decoder = new TextDecoder();
+      let buf = "", full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") break;
+          try {
+            const p = JSON.parse(payload);
+            if (p.error) { full = `⚠️ ${p.error}`; break; }
+            if (p.content) {
+              full += p.content;
+              _resumeState.content = full;        // 后台持续更新模块变量
+              setResult(full);                    // 若已卸载则为空操作，轮询会补上
+            }
+          } catch {}
+        }
+      }
+      if (full && !full.startsWith("⚠️")) {
+        sessionStorage.setItem(`resume_result_${job.id}`, full);
+      }
+    } catch (e) {
+      if (!e?.message?.includes("cancel")) show("网络错误，请重试", "error");
     }
+    _resumeReader = null;
+    _resumeState.generating = false;
+    setGenerating(false);
+  };
+
+  const [history, setHistory] = React.useState([]);
+  const [showHistory, setShowHistory] = React.useState(false);
+
+  const loadHistory = async () => {
+    if (!selectedJobId) return;
+    const res = await fetch(`/api/generate/history/${selectedJobId}?output_type=resume_bullet`);
+    if (res.ok) setHistory(await res.json());
   };
 
   const copy = () => { navigator.clipboard.writeText(result || ""); show("已复制"); };
@@ -119,8 +205,11 @@ function ResumeGenerator({ job: propJob }) {
           </div>
         </div>
         <div style={{ marginBottom:16 }}>
-          <select style={{...sel, maxWidth:400}} value={selectedJobId || ""} onChange={e => setSelectedJobId(Number(e.target.value))}>
-            {jobs.map(j => <option key={j.id} value={j.id}>{j.company || "—"} · {j.title}</option>)}
+          <select style={{...sel, maxWidth:500}} value={selectedJobId || ""} onChange={e => setSelectedJobId(Number(e.target.value))}>
+            {jobs.map(j => {
+              const kws = (j.skills||"").split(",").filter(Boolean).slice(0,3).join(", ");
+              return <option key={j.id} value={j.id}>{j.company||"—"} · {j.title}{kws ? ` [${kws}]` : ""}</option>;
+            })}
           </select>
         </div>
       </div>
@@ -162,7 +251,15 @@ function ResumeGenerator({ job: propJob }) {
 
         {/* Col 2: 经历选择（按匹配度排序） */}
         <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:16, boxShadow:"0 1px 3px rgba(0,0,0,0.06)", overflowY:"auto" }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#6366F1", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>选择经历（按匹配度排序）</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#6366F1", textTransform:"uppercase", letterSpacing:"0.06em" }}>选择经历（按匹配度排序）</div>
+            <button onClick={() => {
+              const allSelected = experiences.every(e => selectedExpIds.has(e.id));
+              setSelectedExpIds(allSelected ? new Set() : new Set(experiences.map(e=>e.id)));
+            }} style={{ fontSize:11, color:"#6366F1", background:"none", border:"1px solid #C7D2FE", borderRadius:5, padding:"2px 8px", cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+              {experiences.every(e => selectedExpIds.has(e.id)) ? "全取消" : "全选"}
+            </button>
+          </div>
           {experiences.length === 0 ? (
             <div style={{ fontSize:13, color:"#9CA3AF", textAlign:"center", padding:"20px 0" }}>请先在「个人背景库」录入经历</div>
           ) : (
@@ -197,9 +294,18 @@ function ResumeGenerator({ job: propJob }) {
             </div>
           )}
           <div style={{ marginTop:12 }}>
-            <Btn variant="primary" size="md" style={{ width:"100%", justifyContent:"center" }} onClick={generate} disabled={generating || !job || !llmOk}>
-              {generating ? <><Spinner size={12} /> 生成中…</> : "✨ 生成 Bullet Points"}
-            </Btn>
+            {generating ? (
+              <div style={{ display:"flex", gap:8 }}>
+                <Btn variant="primary" size="md" style={{ flex:1, justifyContent:"center" }} disabled>
+                  <Spinner size={12} /> 生成中…
+                </Btn>
+                <Btn variant="outline" size="md" onClick={cancelGenerate} style={{ flexShrink:0 }}>取消</Btn>
+              </div>
+            ) : (
+              <Btn variant="primary" size="md" style={{ width:"100%", justifyContent:"center" }} onClick={generate} disabled={!job || !llmOk}>
+                ✨ 生成 Bullet Points
+              </Btn>
+            )}
             {!llmOk && <div style={{ fontSize:11, color:"#D97706", marginTop:6, textAlign:"center" }}>需要配置 API Key</div>}
           </div>
         </div>
@@ -210,10 +316,10 @@ function ResumeGenerator({ job: propJob }) {
             <div style={{ fontSize:11, fontWeight:700, color:"#6366F1", textTransform:"uppercase", letterSpacing:"0.06em" }}>生成结果</div>
             {result && <div style={{ display:"flex", gap:6 }}><Btn variant="outline" size="sm" onClick={copy}>复制全部</Btn></div>}
           </div>
-          {generating ? (
+          {generating && !result ? (
             <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:200, flexDirection:"column", gap:12 }}>
               <Spinner size={24} />
-              <div style={{ fontSize:13, color:"#9CA3AF" }}>AI 生成中，请稍等…</div>
+              <div style={{ fontSize:13, color:"#9CA3AF" }}>AI 生成中，可切换页面，完成后自动显示…</div>
             </div>
           ) : result ? (
             <div>
@@ -221,6 +327,25 @@ function ResumeGenerator({ job: propJob }) {
                 ⚠️ 以下内容由 AI 生成，投递前请人工核查，确认无编造信息
               </div>
               <div className="md" style={{ fontSize:13, color:"#374151" }} dangerouslySetInnerHTML={{ __html: marked.parse(result) }} />
+              <div style={{ marginTop:12, paddingTop:10, borderTop:"1px solid #F3F4F6" }}>
+                <button onClick={async()=>{await loadHistory();setShowHistory(v=>!v);}}
+                  style={{ fontSize:11, color:"#9CA3AF", background:"none", border:"none", cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
+                  {showHistory ? "▲ 收起历史版本" : "▼ 查看历史版本"}
+                </button>
+                {showHistory && history.length > 0 && (
+                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:6 }}>
+                    {history.slice(0,5).map((h,i) => (
+                      <div key={h.id} style={{ padding:"8px 10px", background:"#F9FAFB", borderRadius:8, border:"1px solid #E5E7EB" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                          <span style={{ fontSize:11, color:"#9CA3AF" }}>版本 {history.length-i} · {h.created_at?.slice(0,16).replace("T"," ")}</span>
+                          <button onClick={()=>setResult(h.content)} style={{ fontSize:11, color:"#6366F1", background:"none", border:"none", cursor:"pointer" }}>加载此版本</button>
+                        </div>
+                        <div style={{ fontSize:11, color:"#6B7280", lineHeight:1.5 }}>{h.content.slice(0,80)}…</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ fontSize:13, color:"#9CA3AF", textAlign:"center", padding:"40px 0" }}>
