@@ -22,27 +22,35 @@
 - **后端**：Python + FastAPI
 - **前端**：React（CDN，无需构建）
 - **数据库**：SQLite
-- **AI**：DeepSeek API（兼容 OpenAI 格式，可替换其他模型）
+- **AI**：DeepSeek API（兼容 OpenAI 格式）
 - **浏览器插件**：Chrome Extension Manifest V3
 
 ---
 
 ## 本地运行
 
-### 1. 克隆项目
+### 第一步：克隆项目
 
 ```bash
-git clone https://gitee.com/你的用户名/internpilot.git
+git clone https://gitee.com/seven-circles/internpilot.git
 cd internpilot
 ```
 
-### 2. 配置 API Key
+### 第二步：配置 API Key
 
+获取 DeepSeek API Key：[platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+
+**macOS / Linux：**
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你的 DeepSeek API Key：
+**Windows：**
+```bat
+copy .env.example .env
+```
+
+用任意文本编辑器打开 `.env`，填入你的 Key：
 
 ```
 OPENAI_API_KEY=sk-你的key
@@ -50,22 +58,45 @@ OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_MODEL=deepseek-v4-flash
 ```
 
-获取 API Key：[platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys)
+### 第三步：启动
 
-### 3. 启动
-
+**macOS / Linux：**
 ```bash
 bash start.sh
 ```
 
+**Windows：**
+
+双击 `start.bat`，或在命令提示符中运行：
+```bat
+start.bat
+```
+
+> Windows 用户如果双击 `start.bat` 出现乱码，请在命令提示符（cmd）中运行，不要用 PowerShell。
+
 浏览器访问 **http://localhost:8000**
 
-> 也可以手动启动：
-> ```bash
-> python3 -m venv venv && source venv/bin/activate
-> pip install -r requirements.txt
-> uvicorn server:app --reload
-> ```
+---
+
+### 手动启动（可选）
+
+如果启动脚本报错，可以手动执行：
+
+**macOS / Linux：**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn server:app --reload
+```
+
+**Windows：**
+```bat
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn server:app --reload
+```
 
 ---
 
@@ -102,7 +133,8 @@ bash start.sh
 ```
 internpilot/
 ├── server.py              # FastAPI 主服务
-├── start.sh               # 一键启动脚本
+├── start.sh               # 一键启动脚本（macOS/Linux）
+├── start.bat              # 一键启动脚本（Windows）
 ├── requirements.txt
 ├── .env.example           # 环境变量模板
 ├── modules/
@@ -113,15 +145,8 @@ internpilot/
 │   ├── interview_generator.py
 │   └── jd_parser.py
 ├── static/                # React 前端页面
-│   ├── index.html
-│   ├── Jobs.jsx
-│   ├── ResumeGenerator.jsx
-│   └── ...
 ├── prompts/               # Prompt 模板
 ├── clipper/               # Chrome 插件
-│   ├── manifest.json
-│   ├── popup.html
-│   └── popup.js
 └── data/                  # 运行时生成，不上传
     └── internpilot.db
 ```
@@ -130,10 +155,10 @@ internpilot/
 
 ## 注意事项
 
-- 本项目为**个人工具**，不支持多用户，数据存储在本地 SQLite
+- 本项目为**个人工具**，数据存储在本地 SQLite，不支持多用户
 - API Key 存放在 `.env` 文件，**不要上传到代码仓库**
-- AI 生成的简历内容仅供参考，投递前请人工核查，不要提交包含虚假信息的简历
-- 项目数据库文件（`data/internpilot.db`）已加入 `.gitignore`，个人数据不会上传
+- AI 生成的简历内容仅供参考，投递前请人工核查
+- 数据库文件（`data/internpilot.db`）已加入 `.gitignore`，个人数据不会上传
 
 ---
 
