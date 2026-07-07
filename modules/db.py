@@ -101,6 +101,18 @@ def init_db() -> None:
                 graduation_year TEXT,
                 created_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS resumes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                original_filename TEXT,
+                file_type TEXT,
+                html_content TEXT,
+                parsed_text TEXT,
+                source_resume_id INTEGER,
+                created_at TEXT,
+                updated_at TEXT
+            );
         """)
         conn.commit()
         # 迁移：profile 加求职类型；experience_blocks 加职务和时间
@@ -363,7 +375,88 @@ def update_job(job_id: int, data: dict) -> None:
 def delete_job(job_id: int) -> None:
     conn = get_connection()
     try:
+        conn.execute("DELETE FROM generated_outputs WHERE job_id = ?", (job_id,))
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ── Resume Library ─────────────────────────────────────────────────────────
+
+def add_resume(data: dict) -> int:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT INTO resumes
+               (name, original_filename, file_type, html_content, parsed_text,
+                source_resume_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("name", ""),
+                data.get("original_filename", ""),
+                data.get("file_type", ""),
+                data.get("html_content", ""),
+                data.get("parsed_text", ""),
+                data.get("source_resume_id"),
+                _now(),
+                _now(),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_all_resumes() -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM resumes ORDER BY updated_at DESC, created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_resume_by_id(resume_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM resumes WHERE id = ?", (resume_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_resume_name(resume_id: int, name: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE resumes SET name = ?, updated_at = ? WHERE id = ?",
+            (name, _now(), resume_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_resume_content(resume_id: int, html_content: str, parsed_text: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE resumes SET html_content = ?, parsed_text = ?, file_type = 'html', updated_at = ? WHERE id = ?",
+            (html_content, parsed_text, _now(), resume_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_resume(resume_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM resumes WHERE id = ?", (resume_id,))
         conn.commit()
     finally:
         conn.close()

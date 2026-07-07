@@ -7,6 +7,7 @@ const AppContext = React.createContext({});
 function AppProvider({ children }) {
   const [jobs, setJobs] = React.useState([]);
   const [experiences, setExperiences] = React.useState([]);
+  const [resumes, setResumes] = React.useState([]);
   const [education, setEducation] = React.useState([]);
   const [profile, setProfile] = React.useState(null);
   const [llmOk, setLlmOk] = React.useState(false);
@@ -15,15 +16,17 @@ function AppProvider({ children }) {
 
   const refresh = React.useCallback(async () => {
     try {
-      const [jobsRes, expsRes, eduRes, profileRes, llmRes] = await Promise.all([
+      const [jobsRes, expsRes, resumesRes, eduRes, profileRes, llmRes] = await Promise.all([
         fetch("/api/jobs").then(r => r.json()),
         fetch("/api/experiences").then(r => r.json()),
+        fetch("/api/resumes").then(r => r.json()),
         fetch("/api/education").then(r => r.json()),
         fetch("/api/profile").then(r => r.json()),
         fetch("/api/llm/status").then(r => r.json()),
       ]);
       setJobs(Array.isArray(jobsRes) ? jobsRes : []);
       setExperiences(Array.isArray(expsRes) ? expsRes : []);
+      setResumes(Array.isArray(resumesRes) ? resumesRes : []);
       setEducation(Array.isArray(eduRes) ? eduRes : []);
       setProfile(Object.keys(profileRes).length ? profileRes : null);
       setLlmOk(!!llmRes.configured);
@@ -58,7 +61,7 @@ function AppProvider({ children }) {
   React.useEffect(() => { refresh(); }, []);
 
   return (
-    <AppContext.Provider value={{ jobs, experiences, education, profile, llmOk, loading, refresh, refreshMatchScores, matchStatus, runMatchAll }}>
+    <AppContext.Provider value={{ jobs, experiences, resumes, education, profile, llmOk, loading, refresh, refreshMatchScores, matchStatus, runMatchAll }}>
       {loading ? (
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", color:"#9CA3AF", fontFamily:"Inter,sans-serif", fontSize:14 }}>
           加载中...
@@ -191,7 +194,7 @@ const NAV = [
   { id:"dashboard",   label:"求职控制台",  icon:"M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" },
   { id:"jobs",        label:"岗位推荐",    icon:"M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 3H8L6 7h12l-2-4z" },
   { id:"experiences", label:"个人背景",  icon:"M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" },
-  { id:"resume",      label:"简历生成",    icon:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" },
+  { id:"resume",      label:"简历管理",    icon:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" },
   { id:"interview",   label:"面试准备",    icon:"M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" },
   { id:"ai",          label:"AI 助手",     icon:"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" },
 ];

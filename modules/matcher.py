@@ -17,6 +17,31 @@ def _extract_tokens(text: str) -> list:
     return list(set(t.strip() for t in tokens if t.strip()))
 
 
+def _extract_section(text: str, section_names: list[str]) -> str:
+    """从结构化 JD 中抽取指定段落，如【岗位要求】。"""
+    if not text:
+        return ""
+
+    names = "|".join(re.escape(name) for name in section_names)
+    heading_pattern = rf"(?:【\s*(?:{names})\s*】|(?:{names})[：:])"
+    match = re.search(heading_pattern, text)
+    if not match:
+        return ""
+
+    rest = text[match.end():]
+    next_heading = re.search(r"(?:【[^】]{2,20}】|^[^\n]{2,20}[：:])", rest, re.MULTILINE)
+    return rest[:next_heading.start()].strip() if next_heading else rest.strip()
+
+
+def extract_requirement_text(job: dict) -> str:
+    """优先抽取岗位要求/任职要求段落；没有结构化段落时返回空字符串。"""
+    jd_text = job.get("jd_text", "") or job.get("raw_clip_text", "") or ""
+    return _extract_section(
+        jd_text,
+        ["岗位要求", "任职要求", "职位要求", "任职资格", "候选人要求", "加分项"],
+    )
+
+
 def _exp_full_text(exp: dict) -> str:
     """拼接经历的所有文本字段。"""
     return " ".join(filter(None, [
@@ -108,17 +133,67 @@ def calculate_experience_score(jd_text: str, experiences: list) -> float:
     return round(max(scores), 1) if scores else 0.0
 
 
+def calculate_requirement_score(requirement_text: str, experiences: list, user_keywords: list) -> float:
+    """单独评估岗位要求，避免硬性要求被完整 JD 文本稀释。"""
+    if not requirement_text:
+        return 50.0
+
+    exp_score = calculate_experience_score(requirement_text, experiences)
+    if not user_keywords:
+        return exp_score
+
+    req_lower = requirement_text.lower()
+    matched = sum(1 for kw in user_keywords if kw and kw in req_lower)
+    keyword_score = min(100.0, matched / max(len(user_keywords), 1) * 100)
+    return round(exp_score * 0.65 + keyword_score * 0.35, 1)
+
+
+def calculate_resume_match_score(job: dict, resume: dict) -> float:
+    """计算单份简历与岗位的匹配度。"""
+    resume_text = resume.get("parsed_text", "") or resume.get("html_content", "") or ""
+    if not resume_text:
+        return 0.0
+
+    resume_exp = {
+        "title": resume.get("name", "简历"),
+        "keywords": "",
+        "tools": "",
+        "background": resume_text,
+        "methods": "",
+        "results": "",
+        "raw_bullet": "",
+    }
+    resume_keywords = [k.lower() for k in _extract_tokens(resume_text)[:80]]
+    job_skills = split_text(job.get("skills", ""))
+    jd_text = job.get("jd_text", "") or job.get("raw_clip_text", "") or ""
+    requirement_text = extract_requirement_text(job)
+
+    skill_score = calculate_skill_score(job_skills, resume_keywords)
+    experience_score = calculate_experience_score(jd_text, [resume_exp])
+    requirement_score = calculate_requirement_score(requirement_text, [resume_exp], resume_keywords)
+
+    return round(skill_score * 0.35 + experience_score * 0.35 + requirement_score * 0.30, 1)
+
+
 def calculate_match_score(job: dict, profile: dict, experiences: list, education: list = None) -> float:
     """综合加权匹配分（0-100）。"""
     target_locations = split_text(profile.get("target_locations", ""))
     user_keywords = collect_user_keywords(experiences, education)
     job_skills = split_text(job.get("skills", ""))
+    jd_text = job.get("jd_text", "") or job.get("raw_clip_text", "") or ""
+    requirement_text = extract_requirement_text(job)
 
     skill_score = calculate_skill_score(job_skills, user_keywords)
-    experience_score = calculate_experience_score(job.get("jd_text", ""), experiences)
+    experience_score = calculate_experience_score(jd_text, experiences)
+    requirement_score = calculate_requirement_score(requirement_text, experiences, user_keywords)
     location_score = calculate_location_score(job.get("location", ""), target_locations)
 
-    final = skill_score * 0.45 + experience_score * 0.45 + location_score * 0.10
+    final = (
+        skill_score * 0.35
+        + experience_score * 0.30
+        + requirement_score * 0.25
+        + location_score * 0.10
+    )
     return round(final, 1)
 
 

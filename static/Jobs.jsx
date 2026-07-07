@@ -122,7 +122,7 @@ function JobCard({ job, onDetail, onResume, onInterview, onStatusChange, onDelet
           </select>
         </div>
         <div style={{ display:"flex", gap:6 }}>
-          <Btn variant="ghost" size="sm" onClick={() => onDelete(job.id)}>
+          <Btn variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onDelete(job.id); }}>
             <Icon d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" size={12} color="#EF4444" />
           </Btn>
           <Btn variant="secondary" size="sm" onClick={() => onInterview(job)}>面试准备</Btn>
@@ -285,8 +285,18 @@ function Jobs({ onDetail, onResume, onInterview }) {
   const deleteJob = async (id) => {
     const ok = await confirm({ title:"删除岗位", message:"确认删除此岗位？删除后无法恢复。" });
     if (!ok) return;
-    await fetch(`/api/jobs/${id}`, { method:"DELETE" });
+    const res = await fetch(`/api/jobs/${id}`, { method:"DELETE" });
+    if (!res.ok) {
+      let message = "删除失败，请重试";
+      try {
+        const data = await res.json();
+        message = data.detail || message;
+      } catch {}
+      show(message, "error");
+      return;
+    }
     await refresh();
+    show("岗位已删除");
   };
 
   const filtered = jobs.filter(j => {

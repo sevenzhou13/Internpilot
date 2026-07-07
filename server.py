@@ -1,11 +1,13 @@
 """InternPilot FastAPI 服务器：提供静态前端 + 全部 API 接口。"""
 
 import json
+import re
 from pathlib import Path
+from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,17 +24,23 @@ from modules.db import (
     add_generated_output,
     add_job,
     add_job_from_clip,
+    add_resume,
     delete_education,
     delete_experience,
     delete_job,
+    delete_resume,
     get_all_education,
     get_all_experiences,
     get_all_jobs,
+    get_all_resumes,
     get_dashboard_stats,
     get_generated_outputs,
     get_job_by_id,
     get_profile,
+    get_resume_by_id,
     init_db,
+    update_resume_content,
+    update_resume_name,
     update_job_match_result,
     update_job_parsed_fields,
     update_job_status,
@@ -41,7 +49,7 @@ from modules.db import (
 from modules.interview_generator import generate_interview_prep
 from modules.jd_parser import parse_jd
 from modules.llm_client import is_llm_configured
-from modules.matcher import calculate_match_score
+from modules.matcher import calculate_match_score, calculate_resume_match_score
 from modules.resume_generator import generate_resume_bullets
 
 BASE_DIR = Path(__file__).parent
@@ -67,6 +75,34 @@ def serve_jsx(filename: str):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path, media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: List[str] = []
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+
+def _html_to_text(html: str) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(html or "")
+    return re.sub(r"\s+", " ", "\n".join(parser.parts)).strip()
+
+
+def _resume_summary(resume: Dict[str, Any]) -> Dict[str, Any]:
+    parsed = resume.get("parsed_text") or ""
+    html = resume.get("html_content") or ""
+    return {
+        **resume,
+        "html_content": html if resume.get("file_type") == "html" else "",
+        "parsed_text_preview": parsed[:600],
+        "parsed_text_length": len(parsed),
+    }
 
 
 # ── Pydantic 模型 ───────────────────────────────────────────────────────────
@@ -136,6 +172,22 @@ class ChatIn(BaseModel):
 class GenerateIn(BaseModel):
     job_id: int
     exp_ids: List[int] = []
+
+
+class ResumeRenameIn(BaseModel):
+    name: str
+
+
+class ResumeHtmlIn(BaseModel):
+    html_content: str
+
+
+class OptimizeResumeIn(BaseModel):
+    resume_id: int
+    job_id: int
+    exp_ids: List[int] = []
+    html_content: str = ""
+    new_name: str = ""
 
 
 class ParseJDIn(BaseModel):
@@ -394,6 +446,97 @@ def api_match_all():
     return {"updated": len(jobs)}
 
 
+# ── Resume Library ───────────────────────────────────────────────────────────
+
+@app.get("/api/resumes")
+def api_get_resumes():
+    return [_resume_summary(r) for r in get_all_resumes()]
+
+
+@app.post("/api/resumes")
+async def api_upload_resume(file: UploadFile = File(...), name: str = Form("")):
+    filename = file.filename or "resume"
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    if suffix not in {"html", "htm", "pdf"}:
+        raise HTTPException(400, detail="仅支持上传 HTML 或 PDF 简历")
+
+    raw = await file.read()
+    display_name = (name or Path(filename).stem or "未命名简历").strip()
+
+    if suffix in {"html", "htm"}:
+        html = raw.decode("utf-8", errors="ignore")
+        parsed_text = _html_to_text(html)
+        file_type = "html"
+    else:
+        try:
+            from pypdf import PdfReader
+            import io
+
+            reader = PdfReader(io.BytesIO(raw))
+            parsed_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+        except Exception as exc:
+            raise HTTPException(400, detail=f"PDF 解析失败：{exc}")
+        html = ""
+        file_type = "pdf"
+
+    resume_id = add_resume({
+        "name": display_name,
+        "original_filename": filename,
+        "file_type": file_type,
+        "html_content": html,
+        "parsed_text": parsed_text,
+    })
+    return {"id": resume_id}
+
+
+@app.get("/api/resumes/{resume_id}")
+def api_get_resume(resume_id: int):
+    resume = get_resume_by_id(resume_id)
+    if not resume:
+        raise HTTPException(404, detail="简历不存在")
+    return resume
+
+
+@app.patch("/api/resumes/{resume_id}/name")
+def api_rename_resume(resume_id: int, data: ResumeRenameIn):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, detail="简历名称不能为空")
+    update_resume_name(resume_id, name)
+    return {"ok": True}
+
+
+@app.patch("/api/resumes/{resume_id}/html")
+def api_update_resume_html(resume_id: int, data: ResumeHtmlIn):
+    resume = get_resume_by_id(resume_id)
+    if not resume:
+        raise HTTPException(404, detail="简历不存在")
+    update_resume_content(resume_id, data.html_content, _html_to_text(data.html_content))
+    return {"ok": True}
+
+
+@app.delete("/api/resumes/{resume_id}")
+def api_delete_resume(resume_id: int):
+    delete_resume(resume_id)
+    return {"ok": True}
+
+
+@app.get("/api/resumes/match-scores")
+def api_resume_match_scores(job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+    return [
+        {
+            "resume_id": resume["id"],
+            "name": resume["name"],
+            "file_type": resume.get("file_type"),
+            "match_score": calculate_resume_match_score(job, resume),
+        }
+        for resume in get_all_resumes()
+    ]
+
+
 # ── JD 解析 ───────────────────────────────────────────────────────────────────
 
 @app.post("/api/jd/parse")
@@ -563,6 +706,58 @@ def api_generate_resume_stream(data: GenerateIn):
         "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
     })
+
+
+@app.post("/api/generate/resume-html")
+def api_generate_resume_html(data: OptimizeResumeIn):
+    if not is_llm_configured():
+        raise HTTPException(400, detail="未配置 API Key")
+    resume = get_resume_by_id(data.resume_id)
+    if not resume:
+        raise HTTPException(404, detail="简历不存在")
+    if resume.get("file_type") != "html" and not data.html_content.strip():
+        raise HTTPException(400, detail="请选择 HTML 简历，PDF 简历仅支持解析和匹配")
+    job = get_job_by_id(data.job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+
+    all_exp = get_all_experiences()
+    experiences = [e for e in all_exp if e["id"] in data.exp_ids] if data.exp_ids else all_exp
+
+    from modules.llm_client import call_llm, load_prompt
+    from modules.resume_generator import _format_experiences
+
+    resume_html = data.html_content.strip() or resume.get("html_content", "")
+    template = load_prompt("resume_html_optimize_prompt.txt")
+    prompt = template.format(
+        company=job.get("company") or "未知公司",
+        title=job.get("title") or "未知岗位",
+        role_type=job.get("role_type") or "未知方向",
+        skills=job.get("skills") or "未指定",
+        jd_text=(job.get("jd_text") or "")[:3000],
+        resume_text=(resume.get("parsed_text") or _html_to_text(resume_html))[:5000],
+        experiences=_format_experiences(experiences) if experiences else "未选择额外经历",
+        resume_html=resume_html[:12000],
+    )
+    html = call_llm(prompt, temperature=0.25)
+    if html.startswith("⚠️"):
+        raise HTTPException(500, detail=html)
+    html = html.strip()
+    if html.startswith("```"):
+        html = html.strip("`")
+        if html.lower().startswith("html"):
+            html = html[4:].strip()
+
+    new_id = add_resume({
+        "name": data.new_name.strip() or f"{resume.get('name') or '简历'} - {job.get('company') or ''}{job.get('title') or '优化版'}",
+        "original_filename": "",
+        "file_type": "html",
+        "html_content": html,
+        "parsed_text": _html_to_text(html),
+        "source_resume_id": data.resume_id,
+    })
+    add_generated_output(data.job_id, "resume_html", html)
+    return {"id": new_id, "html_content": html}
 
 
 @app.post("/api/generate/interview")
