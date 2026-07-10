@@ -1,26 +1,64 @@
 """数据库访问层：所有 SQLite 读写操作集中在此文件。"""
 
+import shutil
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DB_PATH = Path(__file__).parent.parent / "data" / "internpilot.db"
+from modules.config import get_database_path
+
+
+SCHEMA_VERSION = 1
+
+
+def _db_path() -> Path:
+    return get_database_path()
 
 
 def get_connection() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    db_path = _db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
-def init_db() -> None:
-    """初始化数据库，创建所有表（幂等）。"""
-    conn = get_connection()
-    try:
-        conn.executescript("""
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, column: str, definition: str
+) -> None:
+    if column not in _table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _current_schema_version(conn: sqlite3.Connection) -> int:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+    )
+    row = conn.execute("SELECT MAX(version) AS version FROM schema_migrations").fetchone()
+    return int(row["version"] or 0)
+
+
+def _backup_legacy_database() -> Optional[Path]:
+    db_path = _db_path()
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        return None
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"{db_path.stem}_before_v{SCHEMA_VERSION}_{timestamp}{db_path.suffix}"
+    shutil.copy2(db_path, backup_path)
+    return backup_path
+
+
+def _migration_v1(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
             CREATE TABLE IF NOT EXISTS profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target_roles TEXT,
@@ -114,20 +152,36 @@ def init_db() -> None:
                 updated_at TEXT
             );
         """)
-        conn.commit()
-        # 迁移：profile 加求职类型；experience_blocks 加职务和时间
-        for col in ["seeking_type TEXT"]:
-            try:
-                conn.execute(f"ALTER TABLE profile ADD COLUMN {col}")
-                conn.commit()
-            except Exception:
-                pass
-        for col in ["role TEXT", "duration TEXT"]:
-            try:
-                conn.execute(f"ALTER TABLE experience_blocks ADD COLUMN {col}")
-                conn.commit()
-            except Exception:
-                pass
+    for column in ("seeking_type", "major", "school", "education_level"):
+        _add_column_if_missing(conn, "profile", column, "TEXT")
+    for column in ("role", "duration"):
+        _add_column_if_missing(conn, "experience_blocks", column, "TEXT")
+
+
+MIGRATIONS = {1: _migration_v1}
+
+
+def init_db() -> None:
+    """初始化并按版本升级数据库；旧库升级前自动备份。"""
+    db_path = _db_path()
+    is_legacy = db_path.exists() and db_path.stat().st_size > 0
+    conn = get_connection()
+    try:
+        current = _current_schema_version(conn)
+        if current < SCHEMA_VERSION and is_legacy and current == 0:
+            conn.close()
+            _backup_legacy_database()
+            conn = get_connection()
+            current = _current_schema_version(conn)
+
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            migration = MIGRATIONS[version]
+            with conn:
+                migration(conn)
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                    (version, _now()),
+                )
     finally:
         conn.close()
 
@@ -155,8 +209,9 @@ def save_profile(data: dict) -> None:
         conn.execute(
             """INSERT INTO profile
                (target_roles, target_locations, preferred_industries, excluded_roles,
-                internship_duration, available_start_date, notes, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                internship_duration, available_start_date, notes, major, school,
+                education_level, seeking_type, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data.get("target_roles", ""),
                 data.get("target_locations", ""),
@@ -165,6 +220,10 @@ def save_profile(data: dict) -> None:
                 data.get("internship_duration", ""),
                 data.get("available_start_date", ""),
                 data.get("notes", ""),
+                data.get("major", ""),
+                data.get("school", ""),
+                data.get("education_level", ""),
+                data.get("seeking_type", ""),
                 _now(),
                 _now(),
             ),

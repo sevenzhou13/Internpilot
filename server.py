@@ -16,6 +16,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from modules.clip_parser import clip_to_job_data, parse_clip_json
+from modules.config import get_allowed_origins, get_app_mode
 from modules.db import (
     add_education,
     add_experience,
@@ -56,7 +57,12 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title="InternPilot", docs_url=None, redoc_url=None)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 init_db()
 
 # ── 静态文件 ────────────────────────────────────────────────────────────────
@@ -67,6 +73,11 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 def root():
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "mode": get_app_mode()}
 
 
 @app.get("/{filename}.jsx")
