@@ -1,4 +1,5 @@
 import pytest
+import socket
 
 from modules.job_importer import _validate_public_url, extract_file_text, split_job_texts
 from modules.job_structurer import compute_duplicate_hash, structure_job
@@ -34,6 +35,17 @@ def test_text_split_and_txt_file_extraction():
 def test_private_url_is_rejected_before_request():
     with pytest.raises(ValueError, match="内网|保留"):
         _validate_public_url("http://127.0.0.1/internal")
+
+
+def test_known_public_host_can_use_constrained_benchmark_alias(monkeypatch):
+    def fake_getaddrinfo(host, port):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.152", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    assert _validate_public_url("https://join.qq.com/post_detail.html?postid=123")
+    with pytest.raises(ValueError, match="内网|保留"):
+        _validate_public_url("https://example.com/job")
 
 
 def test_unsupported_file_type_is_rejected():

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from modules.config import get_app_mode
+
 load_dotenv()
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
@@ -12,6 +14,8 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 def get_llm_config() -> dict:
     """读取 LLM 配置，支持 OpenAI 及兼容接口。"""
+    if get_app_mode() == "test":
+        return {"api_key": "", "base_url": None, "model": "gpt-4o-mini"}
     try:
         import streamlit as st
         api_key = st.secrets.get("OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")

@@ -197,6 +197,49 @@ def calculate_match_score(job: dict, profile: dict, experiences: list, education
     return round(final, 1)
 
 
+def calculate_match_explanation(
+    job: dict, profile: dict, experiences: list, education: list = None
+) -> dict:
+    """返回规则匹配的分项证据，供 UI 和后续 RAG 提示词使用。"""
+    user_keywords = collect_user_keywords(experiences, education)
+    job_skills = split_text(job.get("skills", ""))
+    matched_skills = []
+    missing_skills = []
+    for skill in job_skills:
+        normalized = skill.lower().strip()
+        if any(normalized in keyword or keyword in normalized for keyword in user_keywords):
+            matched_skills.append(skill)
+        else:
+            missing_skills.append(skill)
+
+    jd_text = job.get("jd_text", "") or job.get("raw_clip_text", "") or ""
+    requirement_text = extract_requirement_text(job)
+    scores = {
+        "skills": calculate_skill_score(job_skills, user_keywords),
+        "experience": calculate_experience_score(jd_text, experiences),
+        "requirements": calculate_requirement_score(requirement_text, experiences, user_keywords),
+        "location": calculate_location_score(
+            job.get("location", ""), split_text(profile.get("target_locations", ""))
+        ),
+    }
+    score = round(
+        scores["skills"] * 0.35
+        + scores["experience"] * 0.30
+        + scores["requirements"] * 0.25
+        + scores["location"] * 0.10,
+        1,
+    )
+    return {
+        "score": score,
+        "label": get_match_label(score)[0],
+        "scores": scores,
+        "matched_skills": matched_skills,
+        "missing_skills": missing_skills,
+        "requirement_text": requirement_text[:800],
+        "evidence_note": "分数为可解释规则结果；能力短板不代表无法投递。",
+    }
+
+
 def get_match_label(score: float) -> tuple:
     if score >= 85:
         return "强烈推荐", "🌟"

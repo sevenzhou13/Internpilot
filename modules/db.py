@@ -2,6 +2,7 @@
 
 import shutil
 import sqlite3
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -9,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from modules.config import get_database_path
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _db_path() -> Path:
@@ -241,7 +242,26 @@ def _migration_v2(conn: sqlite3.Connection) -> None:
     """)
 
 
-MIGRATIONS = {1: _migration_v1, 2: _migration_v2}
+def _migration_v3(conn: sqlite3.Connection) -> None:
+    """保存岗位大类人工复核标签，供分类模型训练使用。"""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS job_category_labels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL UNIQUE,
+            category TEXT NOT NULL,
+            label_source TEXT NOT NULL DEFAULT 'manual',
+            reviewer_note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_category_labels_category
+            ON job_category_labels(category);
+    """)
+
+
+MIGRATIONS = {1: _migration_v1, 2: _migration_v2, 3: _migration_v3}
 
 
 def init_db() -> None:
@@ -638,6 +658,106 @@ def add_model_prediction(data: dict) -> int:
         conn.close()
 
 
+def save_job_category_label(job_id: int, category: str, reviewer_note: str = "") -> None:
+    """保存人工复核结果，并将其作为岗位当前最可信的类别。"""
+    conn = get_connection()
+    try:
+        exists = conn.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not exists:
+            raise ValueError("岗位不存在")
+        now = _now()
+        conn.execute(
+            """INSERT INTO job_category_labels
+               (job_id, category, label_source, reviewer_note, created_at, updated_at)
+               VALUES (?, ?, 'manual', ?, ?, ?)
+               ON CONFLICT(job_id) DO UPDATE SET
+                 category=excluded.category,
+                 label_source='manual',
+                 reviewer_note=excluded.reviewer_note,
+                 updated_at=excluded.updated_at""",
+            (job_id, category, reviewer_note, now, now),
+        )
+        conn.execute(
+            """UPDATE jobs SET job_category = ?, category_confidence = 1.0,
+               category_source = 'manual', updated_at = ? WHERE id = ?""",
+            (category, now, job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def apply_model_job_category(job_id: int, category: str, confidence: float) -> None:
+    """写回模型结果，但绝不覆盖人工复核的当前类别。"""
+    conn = get_connection()
+    try:
+        conn.execute(
+            """UPDATE jobs SET job_category = ?, category_confidence = ?,
+               category_source = 'model', updated_at = ?
+               WHERE id = ? AND COALESCE(category_source, '') != 'manual'""",
+            (category, confidence, _now(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job_category_training_samples(include_weak_labels: bool = True) -> List[Dict]:
+    """返回训练样本；人工标签优先，规则结果仅作为可关闭的弱标签。"""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT jobs.id AS job_id, jobs.title, jobs.jd_text, jobs.skills,
+                      jobs.job_category AS rule_category, jobs.category_confidence,
+                      labels.category AS manual_category, labels.reviewer_note
+               FROM jobs
+               LEFT JOIN job_category_labels AS labels ON labels.job_id = jobs.id
+               ORDER BY jobs.id"""
+        ).fetchall()
+    finally:
+        conn.close()
+
+    samples: List[Dict] = []
+    for row in rows:
+        item = dict(row)
+        category = item.get("manual_category")
+        source = "manual"
+        if not category and include_weak_labels:
+            category = item.get("rule_category")
+            source = "rule_weak"
+        if not category:
+            continue
+        samples.append({
+            "job_id": item["job_id"],
+            "title": item.get("title") or "",
+            "jd_text": item.get("jd_text") or "",
+            "skills": item.get("skills") or "",
+            "category": category,
+            "label_source": source,
+        })
+    return samples
+
+
+def get_job_category_review_queue(limit: int = 50) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT jobs.id, jobs.company, jobs.title, jobs.job_category,
+                      jobs.category_confidence, jobs.category_source, jobs.jd_text,
+                      labels.category AS reviewed_category, labels.reviewer_note,
+                      labels.updated_at AS reviewed_at
+               FROM jobs
+               LEFT JOIN job_category_labels AS labels ON labels.job_id = jobs.id
+               ORDER BY CASE WHEN labels.id IS NULL THEN 0 ELSE 1 END,
+                        jobs.category_confidence ASC, jobs.updated_at DESC
+               LIMIT ?""",
+            (max(1, min(limit, 1000)),),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def get_job_analysis(job_id: int) -> Optional[Dict]:
     job = get_job_by_id(job_id)
     if not job:
@@ -657,6 +777,39 @@ def get_job_analysis(job_id: int) -> Optional[Dict]:
         "application_events": get_application_events(job_id),
         "predictions": [dict(row) for row in predictions],
     }
+
+
+def replace_knowledge_chunks(doc_type: str, source_id: int, related_job_id: Optional[int], chunks: List[str]) -> int:
+    """用最新切片替换一个源文档的本地知识索引。"""
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM knowledge_chunks WHERE doc_type = ? AND source_id = ?", (doc_type, source_id))
+        count = 0
+        for chunk in chunks:
+            text = (chunk or "").strip()
+            if not text:
+                continue
+            content_hash = hashlib.sha256(f"{doc_type}|{source_id}|{text}".encode("utf-8")).hexdigest()
+            conn.execute(
+                """INSERT OR IGNORE INTO knowledge_chunks
+                   (doc_type, source_id, related_job_id, chunk_text, content_hash, embedding_model, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, 'tfidf-v1', ?, ?)""",
+                (doc_type, source_id, related_job_id, text, content_hash, _now(), _now()),
+            )
+            count += 1
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+def get_knowledge_chunks() -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM knowledge_chunks ORDER BY doc_type, source_id, id").fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
 
 
 # ── Resume Library ─────────────────────────────────────────────────────────

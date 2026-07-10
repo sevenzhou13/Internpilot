@@ -19,6 +19,10 @@ from modules.job_structurer import structure_job
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_URL_BYTES = 2 * 1024 * 1024
 MAX_JOBS_PER_IMPORT = 20
+# 某些桌面网络/代理会将腾讯招聘域名映射到 RFC 2544 基准测试地址段。
+# 只允许已知公开域名使用该映射，不能据此放宽任何本机或内网地址。
+BENCHMARK_ALIAS_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+BENCHMARK_ALIAS_HOSTS = frozenset({"join.qq.com"})
 
 
 class _VisibleTextParser(HTMLParser):
@@ -108,9 +112,15 @@ def _validate_public_url(url: str) -> str:
         raise ValueError("无法解析 URL 域名") from exc
     for address in addresses:
         ip = ipaddress.ip_address(address)
-        if not ip.is_global:
+        if not ip.is_global and not _is_allowed_benchmark_alias(parsed.hostname, ip):
             raise ValueError("禁止访问本机、内网或保留地址")
     return parsed.geturl()
+
+
+def _is_allowed_benchmark_alias(hostname: str, ip: ipaddress._BaseAddress) -> bool:
+    """只接受指定公开域名经本地代理映射到 198.18.0.0/15 的兼容情形。"""
+    normalized_host = (hostname or "").lower().rstrip(".")
+    return normalized_host in BENCHMARK_ALIAS_HOSTS and ip in BENCHMARK_ALIAS_NETWORK
 
 
 def fetch_public_page(url: str) -> tuple[str, str]:
@@ -133,7 +143,10 @@ def fetch_public_page(url: str) -> tuple[str, str]:
                 raise ValueError("页面内容超过 2 MB")
             text = html_to_text(response.text) if "html" in content_type else response.text
             if len(text.strip()) < 20:
-                raise ValueError("页面没有可解析的岗位文本")
+                raise ValueError(
+                    "页面没有可解析的岗位文本；该页面可能依赖浏览器 JavaScript 渲染，"
+                    "请使用 InternPilot Clipper 或粘贴岗位 JD"
+                )
             return text, current
     raise ValueError("页面重定向次数过多")
 

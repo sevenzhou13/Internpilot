@@ -15,8 +15,23 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
   const [editForm, setEditForm] = React.useState({});
   const [saving, setSaving] = React.useState(false);
   const [analysis, setAnalysis] = React.useState(null);
+  const [categories, setCategories] = React.useState([]);
+  const [selectedCategory, setSelectedCategory] = React.useState("");
+  const [savingCategory, setSavingCategory] = React.useState(false);
+  const [predictingCategory, setPredictingCategory] = React.useState(false);
 
   React.useEffect(() => { setApplyUrl(job?.apply_url || ""); }, [job?.id]);
+  React.useEffect(() => {
+    if (!job?.id) return;
+    fetch("/api/jobs/categories/review")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const options = data?.categories || [];
+        setCategories(options);
+        setSelectedCategory(options.includes(job.job_category) ? job.job_category : "");
+      })
+      .catch(() => setCategories([]));
+  }, [job?.id, job?.job_category]);
   React.useEffect(() => {
     if (!job?.id) return;
     fetch(`/api/jobs/${job.id}/analysis`).then(r=>r.ok?r.json():null).then(setAnalysis).catch(()=>setAnalysis(null));
@@ -59,6 +74,36 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
     setSavingUrl(false);
     await refresh();
     show("链接已保存");
+  };
+
+  const saveCategory = async () => {
+    if (!selectedCategory) { show("请选择岗位类别", "error"); return; }
+    setSavingCategory(true);
+    const res = await fetch(`/api/jobs/${job.id}/category-label`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ category:selectedCategory }),
+    });
+    setSavingCategory(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      show(data.detail || "保存分类失败", "error");
+      return;
+    }
+    await refresh();
+    show("已保存人工复核类别");
+  };
+
+  const predictCategory = async () => {
+    setPredictingCategory(true);
+    const res = await fetch(`/api/jobs/${job.id}/predict-category`, { method:"POST" });
+    setPredictingCategory(false);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      show(data.detail || "模型预测失败，请先完成训练", "error");
+      return;
+    }
+    await refresh();
+    show(`模型预测：${data.category}（${Math.round((data.confidence || 0) * 100)}%）`);
   };
 
   // 将 jd_text 按【岗位职责】/【岗位要求】拆分为结构化段落
@@ -176,6 +221,24 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
               </div>
               {(job.salary_min || job.experience_required) && <div style={{fontSize:12,color:"#6B7280",marginBottom:10}}>薪资：{job.salary_min?`${job.salary_min}-${job.salary_max} ${job.salary_unit}`:"未识别"} · 经验：{job.experience_required||"未识别"}</div>}
               {analysis?.skills?.length > 0 && <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{analysis.skills.map(s=><span key={s.id} title={`${s.skill_type} · ${s.source}`} style={{fontSize:11,padding:"4px 8px",borderRadius:999,background:"#EEF2FF",color:"#4F46E5"}}>{s.skill_name}</span>)}</div>}
+            </div>
+          )}
+
+          {categories.length > 0 && (
+            <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:"16px 20px", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", marginBottom:16 }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:"0.06em" }}>岗位类别复核</div>
+                <span style={{fontSize:11,color:job.category_source === "manual" ? "#059669" : "#6B7280"}}>{job.category_source === "manual" ? "人工已确认" : job.category_source === "model" ? "模型预测" : "规则建议"}</span>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <select value={selectedCategory} onChange={e=>setSelectedCategory(e.target.value)} style={{flex:1,minWidth:180,padding:"7px 10px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,color:"#374151",background:"#fff"}}>
+                  <option value="">请选择人工复核类别</option>
+                  {categories.map(category => <option key={category} value={category}>{category}</option>)}
+                </select>
+                <Btn variant="outline" size="sm" onClick={saveCategory} disabled={savingCategory}>{savingCategory ? "保存中…" : "确认类别"}</Btn>
+                <Btn variant="secondary" size="sm" onClick={predictCategory} disabled={predictingCategory}>{predictingCategory ? "预测中…" : "模型预测"}</Btn>
+              </div>
+              <div style={{fontSize:11,color:"#9CA3AF",marginTop:8}}>人工确认优先于规则和模型预测；模型未训练时会提示先完成训练。</div>
             </div>
           )}
 

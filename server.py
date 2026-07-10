@@ -26,6 +26,8 @@ from modules.db import (
     add_generated_output,
     add_job,
     add_job_from_clip,
+    add_model_prediction,
+    apply_model_job_category,
     add_resume,
     delete_education,
     delete_experience,
@@ -38,6 +40,8 @@ from modules.db import (
     get_dashboard_stats,
     get_generated_outputs,
     get_job_analysis,
+    get_job_category_review_queue,
+    get_job_category_training_samples,
     get_job_by_id,
     find_job_by_duplicate_hash,
     get_profile,
@@ -50,6 +54,7 @@ from modules.db import (
     update_job_status,
     replace_job_skills,
     save_profile,
+    save_job_category_label,
 )
 from modules.job_importer import (
     extract_file_text,
@@ -60,7 +65,7 @@ from modules.job_structurer import structure_job
 from modules.interview_generator import generate_interview_prep
 from modules.jd_parser import parse_jd
 from modules.llm_client import is_llm_configured
-from modules.matcher import calculate_match_score, calculate_resume_match_score
+from modules.matcher import calculate_match_explanation, calculate_match_score, calculate_resume_match_score
 from modules.resume_generator import generate_resume_bullets
 
 BASE_DIR = Path(__file__).parent
@@ -241,6 +246,15 @@ class UrlPreviewIn(BaseModel):
 class ImportCommitIn(BaseModel):
     jobs: List[Dict[str, Any]]
     allow_duplicates: bool = False
+
+
+class CategoryLabelIn(BaseModel):
+    category: str
+    reviewer_note: str = ""
+
+
+class CategoryTrainingIn(BaseModel):
+    include_weak_labels: bool = False
 
 
 class EducationIn(BaseModel):
@@ -510,12 +524,112 @@ def api_commit_job_import(data: ImportCommitIn):
     return {"created": created, "duplicates": duplicates}
 
 
+@app.get("/api/jobs/categories/review")
+def api_get_category_review_queue(limit: int = 50):
+    from modules.job_classifier import get_category_names
+
+    return {
+        "categories": get_category_names(),
+        "jobs": get_job_category_review_queue(limit),
+    }
+
+
+@app.post("/api/jobs/{job_id}/category-label")
+def api_save_job_category_label(job_id: int, data: CategoryLabelIn):
+    from modules.job_classifier import get_category_names
+
+    if data.category not in get_category_names():
+        raise HTTPException(400, detail="不支持的岗位类别")
+    try:
+        save_job_category_label(job_id, data.category, data.reviewer_note)
+    except ValueError as exc:
+        raise HTTPException(404, detail=str(exc))
+    return {"ok": True, "category": data.category, "source": "manual"}
+
+
+@app.post("/api/models/job-category/train")
+def api_train_job_category_model(data: CategoryTrainingIn):
+    from modules.job_classifier import ClassifierDataError, train_job_category_model
+
+    samples = get_job_category_training_samples(data.include_weak_labels)
+    try:
+        result = train_job_category_model(samples)
+    except ClassifierDataError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc))
+    return {
+        **result,
+        "manual_sample_count": sum(item["label_source"] == "manual" for item in samples),
+        "weak_sample_count": sum(item["label_source"] == "rule_weak" for item in samples),
+    }
+
+
+@app.post("/api/jobs/{job_id}/predict-category")
+def api_predict_job_category(job_id: int):
+    from modules.job_classifier import ClassifierDataError, predict_job_category
+
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+    try:
+        prediction = predict_job_category(job)
+    except FileNotFoundError as exc:
+        raise HTTPException(409, detail=str(exc))
+    except ClassifierDataError as exc:
+        raise HTTPException(422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc))
+
+    add_model_prediction({
+        "job_id": job_id,
+        "model_name": prediction["model_name"],
+        "model_version": prediction["model_version"],
+        "prediction_type": "job_category",
+        "prediction_value": prediction["category"],
+        "confidence": prediction["confidence"],
+        "explanation_json": json.dumps({"top_predictions": prediction["top_predictions"]}, ensure_ascii=False),
+    })
+    apply_model_job_category(job_id, prediction["category"], prediction["confidence"])
+    return prediction
+
+
 @app.get("/api/jobs/{job_id}/analysis")
 def api_get_job_analysis(job_id: int):
     analysis = get_job_analysis(job_id)
     if not analysis:
         raise HTTPException(404, detail="岗位不存在")
     return analysis
+
+
+@app.get("/api/jobs/{job_id}/match-explanation")
+def api_get_job_match_explanation(job_id: int):
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+    profile = get_profile()
+    if not profile:
+        raise HTTPException(400, detail="请先设置求职偏好")
+    experiences = get_all_experiences()
+    if not experiences:
+        raise HTTPException(400, detail="请先录入个人经历")
+    return calculate_match_explanation(job, profile, experiences, get_all_education())
+
+
+@app.post("/api/knowledge/rebuild")
+def api_rebuild_knowledge():
+    from modules.rag_retriever import rebuild_knowledge_index
+
+    return rebuild_knowledge_index()
+
+
+@app.get("/api/knowledge/search")
+def api_search_knowledge(query: str, job_id: Optional[int] = None, top_k: int = 5):
+    from modules.rag_retriever import retrieve_knowledge
+
+    if not query.strip():
+        raise HTTPException(400, detail="检索问题不能为空")
+    return {"chunks": retrieve_knowledge(query, job_id, top_k)}
 
 
 @app.post("/api/jobs/match-scores")
@@ -929,6 +1043,18 @@ def _build_chat_context(data: ChatIn) -> list:
         experiences = get_all_experiences()
         if experiences:
             system_parts.append(f"\n【用户个人经历】\n{_format_experiences(experiences)}")
+
+    latest_question = next((message.content for message in reversed(data.messages) if message.role == "user"), "")
+    if latest_question:
+        from modules.rag_retriever import retrieve_knowledge
+
+        retrieved = retrieve_knowledge(latest_question, data.job_id)
+        if retrieved:
+            evidence = "\n".join(
+                f"[{item['doc_type']} #{item['source_id']}] {item['chunk_text']}"
+                for item in retrieved
+            )
+            system_parts.append(f"\n【检索到的本地资料】\n{evidence}\n回答时说明使用了哪些资料，不要编造。")
 
     messages = [{"role": "system", "content": "\n".join(system_parts)}]
     messages += [{"role": m.role, "content": m.content} for m in data.messages[-20:]]

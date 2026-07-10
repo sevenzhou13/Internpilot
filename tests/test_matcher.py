@@ -1,4 +1,5 @@
 from modules.matcher import (
+    calculate_match_explanation,
     calculate_location_score,
     calculate_match_score,
     calculate_skill_score,
@@ -26,3 +27,16 @@ def test_match_score_stays_in_range():
     score = calculate_match_score(job, profile, experiences)
     assert 0 <= score <= 100
     assert score > 50
+
+
+def test_match_explanation_returns_component_scores_and_skill_evidence():
+    job = {"location": "上海", "skills": "Python,SQL,Excel", "jd_text": "熟悉 Python、SQL，负责数据分析"}
+    profile = {"target_locations": "上海"}
+    experiences = [{"title": "分析项目", "keywords": "Python,SQL", "tools": "Python,SQL"}]
+
+    result = calculate_match_explanation(job, profile, experiences)
+
+    assert result["score"] > 0
+    assert result["scores"]["location"] == 100.0
+    assert set(result["matched_skills"]) == {"Python", "SQL"}
+    assert result["missing_skills"] == ["Excel"]

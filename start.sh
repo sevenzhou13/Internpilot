@@ -7,13 +7,13 @@ echo "=== InternPilot 启动脚本 ==="
 python3 --version >/dev/null 2>&1 || { echo "错误：未找到 python3，请先安装 Python 3.9+"; exit 1; }
 
 # 创建虚拟环境（如果不存在）
-if [ ! -d "venv" ]; then
+if [ ! -d ".venv" ]; then
   echo ">>> 创建虚拟环境..."
-  python3 -m venv venv
+  python3 -m venv .venv
 fi
 
 # 激活虚拟环境
-source venv/bin/activate
+source .venv/bin/activate
 
 # 安装依赖
 echo ">>> 安装依赖..."

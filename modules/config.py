@@ -20,6 +20,15 @@ def get_database_path() -> Path:
     return path if path.is_absolute() else (BASE_DIR / path).resolve()
 
 
+def get_model_artifact_dir() -> Path:
+    """返回本地模型产物目录，测试可通过环境变量隔离。"""
+    configured = os.getenv("INTERNPILOT_MODEL_DIR", "").strip()
+    if not configured:
+        return BASE_DIR / "artifacts" / "models"
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else (BASE_DIR / path).resolve()
+
+
 def get_allowed_origins() -> list[str]:
     configured = os.getenv("ALLOWED_ORIGINS", "").strip()
     if configured:
