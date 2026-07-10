@@ -14,8 +14,13 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
   const [editing, setEditing] = React.useState(false);
   const [editForm, setEditForm] = React.useState({});
   const [saving, setSaving] = React.useState(false);
+  const [analysis, setAnalysis] = React.useState(null);
 
   React.useEffect(() => { setApplyUrl(job?.apply_url || ""); }, [job?.id]);
+  React.useEffect(() => {
+    if (!job?.id) return;
+    fetch(`/api/jobs/${job.id}/analysis`).then(r=>r.ok?r.json():null).then(setAnalysis).catch(()=>setAnalysis(null));
+  }, [job?.id, job?.updated_at]);
 
   const startEdit = () => {
     setEditForm({ company:job.company||"", title:job.title||"", location:job.location||"", role_type:job.role_type||"其他", skills:job.skills||"", jd_text:job.jd_text||"" });
@@ -99,6 +104,7 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
+
         )}
       </div>
 
@@ -161,6 +167,18 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
             )}
           </div>
 
+          {/* 结构化岗位信息 */}
+          {(job.job_category || job.education_required || job.salary_min || analysis?.skills?.length) && (
+            <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:"16px 20px", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", marginBottom:16 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:12 }}>结构化分析</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:12}}>
+                {[["岗位大类",job.job_category||"待分类"],["标准城市",job.city_normalized||job.location||"未识别"],["学历要求",job.education_required||"未识别"]].map(([label,value])=><div key={label} style={{background:"#F9FAFB",borderRadius:8,padding:"9px 10px"}}><div style={{fontSize:10,color:"#9CA3AF",marginBottom:3}}>{label}</div><div style={{fontSize:12,fontWeight:600,color:"#374151"}}>{value}</div></div>)}
+              </div>
+              {(job.salary_min || job.experience_required) && <div style={{fontSize:12,color:"#6B7280",marginBottom:10}}>薪资：{job.salary_min?`${job.salary_min}-${job.salary_max} ${job.salary_unit}`:"未识别"} · 经验：{job.experience_required||"未识别"}</div>}
+              {analysis?.skills?.length > 0 && <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{analysis.skills.map(s=><span key={s.id} title={`${s.skill_type} · ${s.source}`} style={{fontSize:11,padding:"4px 8px",borderRadius:999,background:"#EEF2FF",color:"#4F46E5"}}>{s.skill_name}</span>)}</div>}
+            </div>
+          )}
+
           {/* 匹配分析 */}
           {job.recommendation_reason && (
             <div style={{ background:"#EEF2FF", border:"1px solid #C7D2FE", borderRadius:12, padding:"16px 20px", marginBottom:16 }}>
@@ -205,6 +223,7 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
           <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:"16px 20px", boxShadow:"0 1px 3px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:8 }}>投递状态</div>
             <StatusTag status={job.status} />
+            {analysis?.application_events?.length > 0 && <div style={{marginTop:12,borderTop:"1px solid #F3F4F6",paddingTop:8}}>{analysis.application_events.slice(0,4).map(event=><div key={event.id} style={{fontSize:10,color:"#9CA3AF",marginTop:5}}>{event.from_status?`${event.from_status} → `:"创建："}{event.to_status}<br/>{event.occurred_at?.replace("T"," ")}</div>)}</div>}
           </div>
 
           {/* 招聘原链接 */}

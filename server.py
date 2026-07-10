@@ -6,6 +6,7 @@ from pathlib import Path
 from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,7 +37,9 @@ from modules.db import (
     get_all_resumes,
     get_dashboard_stats,
     get_generated_outputs,
+    get_job_analysis,
     get_job_by_id,
+    find_job_by_duplicate_hash,
     get_profile,
     get_resume_by_id,
     init_db,
@@ -45,8 +48,15 @@ from modules.db import (
     update_job_match_result,
     update_job_parsed_fields,
     update_job_status,
+    replace_job_skills,
     save_profile,
 )
+from modules.job_importer import (
+    extract_file_text,
+    preview_text_jobs,
+    preview_url_job,
+)
+from modules.job_structurer import structure_job
 from modules.interview_generator import generate_interview_prep
 from modules.jd_parser import parse_jd
 from modules.llm_client import is_llm_configured
@@ -155,6 +165,18 @@ class JobIn(BaseModel):
     jd_text: str = ""
     apply_url: str = ""
     skills: str = ""
+    structured_json: str = ""
+    city_normalized: str = ""
+    salary_min: Optional[float] = None
+    salary_max: Optional[float] = None
+    salary_unit: str = ""
+    education_required: str = ""
+    experience_required: str = ""
+    job_category: str = ""
+    category_confidence: Optional[float] = None
+    category_source: str = ""
+    duplicate_hash: str = ""
+    source_platform: str = ""
 
 
 class ClipIn(BaseModel):
@@ -210,6 +232,15 @@ class ParseJDIn(BaseModel):
 
 class ParseTextIn(BaseModel):
     text: str
+
+
+class UrlPreviewIn(BaseModel):
+    url: str
+
+
+class ImportCommitIn(BaseModel):
+    jobs: List[Dict[str, Any]]
+    allow_duplicates: bool = False
 
 
 class EducationIn(BaseModel):
@@ -351,7 +382,12 @@ def api_get_jobs():
 
 @app.post("/api/jobs")
 def api_add_job(data: JobIn):
-    job_id = add_job(data.model_dump())
+    structured = structure_job(data.model_dump())
+    duplicate = find_job_by_duplicate_hash(structured["duplicate_hash"])
+    if duplicate:
+        raise HTTPException(409, detail={"message": "岗位已存在", "job_id": duplicate["id"]})
+    job_id = add_job(structured)
+    replace_job_skills(job_id, structured.pop("skill_rows", []))
     return {"id": job_id}
 
 
@@ -363,13 +399,22 @@ def api_delete_job(job_id: int):
 
 @app.patch("/api/jobs/{job_id}")
 def api_update_job(job_id: int, data: JobIn):
-    update_job(job_id, data.model_dump())
+    existing = get_job_by_id(job_id)
+    if not existing:
+        raise HTTPException(404, detail="岗位不存在")
+    structured = structure_job({**existing, **data.model_dump(exclude_unset=True)})
+    skill_rows = structured.pop("skill_rows", [])
+    update_job(job_id, structured)
+    replace_job_skills(job_id, skill_rows)
     return {"ok": True}
 
 
 @app.patch("/api/jobs/{job_id}/status")
 def api_update_status(job_id: int, data: StatusIn):
-    update_job_status(job_id, data.status)
+    try:
+        update_job_status(job_id, data.status)
+    except ValueError as exc:
+        raise HTTPException(404, detail=str(exc))
     return {"ok": True}
 
 
@@ -390,11 +435,87 @@ def api_update_apply_url(job_id: int, data: ApplyUrlIn):
 def api_import_clip(data: ClipIn):
     try:
         clip_data = parse_clip_json(data.raw_json)
-        job_data = clip_to_job_data(clip_data)
+        job_data = structure_job(clip_to_job_data(clip_data))
+        duplicate = find_job_by_duplicate_hash(job_data["duplicate_hash"])
+        if duplicate:
+            raise HTTPException(409, detail={"message": "岗位已存在", "job_id": duplicate["id"]})
         job_id = add_job(job_data)
+        replace_job_skills(job_id, job_data.pop("skill_rows", []))
         return {"id": job_id, "title": job_data["title"]}
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
+
+
+def _mark_preview_duplicates(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    result = []
+    for job in jobs:
+        duplicate = find_job_by_duplicate_hash(job.get("duplicate_hash", ""))
+        result.append({
+            **job,
+            "duplicate_of": (
+                {"id": duplicate["id"], "company": duplicate.get("company"), "title": duplicate.get("title")}
+                if duplicate else None
+            ),
+        })
+    return result
+
+
+@app.post("/api/jobs/import/text/preview")
+def api_preview_job_text(data: ParseTextIn):
+    try:
+        return {"jobs": _mark_preview_duplicates(preview_text_jobs(data.text))}
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+
+
+@app.post("/api/jobs/import/file/preview")
+async def api_preview_job_file(file: UploadFile = File(...)):
+    try:
+        text = extract_file_text(file.filename or "", await file.read())
+        return {"jobs": _mark_preview_duplicates(preview_text_jobs(text, source="file"))}
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(400, detail=f"文件解析失败：{exc}")
+
+
+@app.post("/api/jobs/import/url/preview")
+def api_preview_job_url(data: UrlPreviewIn):
+    try:
+        return {"jobs": _mark_preview_duplicates([preview_url_job(data.url)])}
+    except (ValueError, httpx.HTTPError) as exc:
+        raise HTTPException(400, detail=str(exc))
+
+
+@app.post("/api/jobs/import/commit")
+def api_commit_job_import(data: ImportCommitIn):
+    if not data.jobs:
+        raise HTTPException(400, detail="没有可保存的岗位")
+    if len(data.jobs) > 20:
+        raise HTTPException(400, detail="单次最多保存 20 个岗位")
+    created = []
+    duplicates = []
+    for raw_job in data.jobs:
+        structured = structure_job(raw_job)
+        if not (structured.get("title") or "").strip():
+            raise HTTPException(400, detail="岗位名称不能为空")
+        duplicate = find_job_by_duplicate_hash(structured["duplicate_hash"])
+        if duplicate and not data.allow_duplicates:
+            duplicates.append({"incoming": structured.get("title"), "existing_id": duplicate["id"]})
+            continue
+        skill_rows = structured.pop("skill_rows", [])
+        job_id = add_job(structured)
+        replace_job_skills(job_id, skill_rows)
+        created.append({"id": job_id, "title": structured.get("title")})
+    return {"created": created, "duplicates": duplicates}
+
+
+@app.get("/api/jobs/{job_id}/analysis")
+def api_get_job_analysis(job_id: int):
+    analysis = get_job_analysis(job_id)
+    if not analysis:
+        raise HTTPException(404, detail="岗位不存在")
+    return analysis
 
 
 @app.post("/api/jobs/match-scores")
@@ -631,7 +752,10 @@ def api_parse_job_jd(job_id: int):
         source_domain=job.get("source_domain", ""),
     )
     if "error" not in result:
-        update_job_parsed_fields(job_id, result)
+        structured = structure_job(job, result)
+        skill_rows = structured.pop("skill_rows", [])
+        update_job(job_id, structured)
+        replace_job_skills(job_id, skill_rows)
     return result
 
 

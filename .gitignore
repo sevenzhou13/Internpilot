@@ -1,8 +1,9 @@
 .env
 .streamlit/secrets.toml
 data/internpilot.db
-data/internpilot.db-shm
-data/internpilot.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
 data/backups/
 data/raw/
 data/processed/

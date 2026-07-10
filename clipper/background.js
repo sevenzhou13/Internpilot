@@ -87,8 +87,11 @@ async function saveJob(data) {
   });
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
-    throw new Error(d.detail || "保存失败");
+    const detail = typeof d.detail === "object" ? d.detail.message : d.detail;
+    throw new Error(detail || "保存失败");
   }
+  // 匹配为纯规则计算；缺少偏好或经历时接口会安全返回 updated=0。
+  await fetch(`${BASE}/api/jobs/match-scores`, { method: "POST" }).catch(() => null);
   chrome.storage.local.set({ status: "saved" });
   return { ok: true };
 }

@@ -54,3 +54,26 @@ def test_profile_round_trip_preserves_extended_fields(tmp_path, monkeypatch):
 
     for key, value in payload.items():
         assert result[key] == value
+
+
+def test_job_skills_and_status_events_are_persisted(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERNPILOT_DB_PATH", str(tmp_path / "jobs.db"))
+    db.init_db()
+    job_id = db.add_job({
+        "title": "数据分析实习生",
+        "status": "未查看",
+        "duplicate_hash": "abc123",
+    })
+    db.replace_job_skills(job_id, [
+        {"skill_name": "Python", "skill_type": "工具", "importance_score": 1.0},
+        {"skill_name": "SQL", "skill_type": "工具", "importance_score": 0.9},
+    ])
+    db.update_job_status(job_id, "待投递")
+
+    assert db.find_job_by_duplicate_hash("abc123")["id"] == job_id
+    assert [row["skill_name"] for row in db.get_job_skills(job_id)] == ["Python", "SQL"]
+    events = list(reversed(db.get_application_events(job_id)))
+    assert [(row["from_status"], row["to_status"]) for row in events] == [
+        (None, "未查看"),
+        ("未查看", "待投递"),
+    ]

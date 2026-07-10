@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from modules.config import get_database_path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _db_path() -> Path:
@@ -158,7 +158,90 @@ def _migration_v1(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(conn, "experience_blocks", column, "TEXT")
 
 
-MIGRATIONS = {1: _migration_v1}
+def _migration_v2(conn: sqlite3.Connection) -> None:
+    job_columns = {
+        "structured_json": "TEXT",
+        "city_normalized": "TEXT",
+        "salary_min": "REAL",
+        "salary_max": "REAL",
+        "salary_unit": "TEXT",
+        "education_required": "TEXT",
+        "experience_required": "TEXT",
+        "job_category": "TEXT",
+        "category_confidence": "REAL",
+        "category_source": "TEXT",
+        "duplicate_hash": "TEXT",
+        "source_platform": "TEXT",
+    }
+    for column, definition in job_columns.items():
+        _add_column_if_missing(conn, "jobs", column, definition)
+
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS job_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            skill_name TEXT NOT NULL,
+            skill_type TEXT,
+            importance_score REAL DEFAULT 1.0,
+            source TEXT,
+            created_at TEXT,
+            UNIQUE(job_id, skill_name),
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS application_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            from_status TEXT,
+            to_status TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            next_action_date TEXT,
+            feedback TEXT,
+            user_rating REAL,
+            notes TEXT,
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS model_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            model_name TEXT NOT NULL,
+            model_version TEXT,
+            prediction_type TEXT NOT NULL,
+            prediction_value TEXT,
+            confidence REAL,
+            explanation_json TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS knowledge_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_type TEXT NOT NULL,
+            source_id INTEGER,
+            related_job_id INTEGER,
+            chunk_text TEXT NOT NULL,
+            content_hash TEXT NOT NULL UNIQUE,
+            vector_id INTEGER,
+            embedding_model TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (related_job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jobs_duplicate_hash ON jobs(duplicate_hash);
+        CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs(job_category);
+        CREATE INDEX IF NOT EXISTS idx_job_skills_job ON job_skills(job_id);
+        CREATE INDEX IF NOT EXISTS idx_application_events_job_time
+            ON application_events(job_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_predictions_job_type
+            ON model_predictions(job_id, prediction_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_chunks_job_type
+            ON knowledge_chunks(related_job_id, doc_type);
+    """)
+
+
+MIGRATIONS = {1: _migration_v1, 2: _migration_v2}
 
 
 def init_db() -> None:
@@ -307,37 +390,42 @@ def delete_experience(experience_id: int) -> None:
 # ── Jobs ───────────────────────────────────────────────────────────────────
 
 def add_job(data: dict) -> int:
+    columns = [
+        "company", "title", "location", "role_type", "source", "jd_text",
+        "raw_clip_text", "source_domain", "apply_url", "publish_date", "deadline",
+        "skills", "status", "match_score", "recommendation_reason", "clipped_at",
+        "structured_json", "city_normalized", "salary_min", "salary_max", "salary_unit",
+        "education_required", "experience_required", "job_category",
+        "category_confidence", "category_source", "duplicate_hash", "source_platform",
+        "created_at", "updated_at",
+    ]
+    values = [data.get(column) for column in columns[:-2]] + [_now(), _now()]
+    defaults = {
+        "source": "manual",
+        "status": "未查看",
+        "recommendation_reason": "",
+        "structured_json": "",
+        "category_source": "",
+    }
+    values = [
+        defaults.get(column, "") if value is None and column in defaults else value
+        for column, value in zip(columns, values)
+    ]
     conn = get_connection()
     try:
         cur = conn.execute(
-            """INSERT INTO jobs
-               (company, title, location, role_type, source, jd_text, raw_clip_text,
-                source_domain, apply_url, publish_date, deadline, skills,
-                status, match_score, recommendation_reason, clipped_at, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                data.get("company", ""),
-                data.get("title", ""),
-                data.get("location", ""),
-                data.get("role_type", ""),
-                data.get("source", "manual"),
-                data.get("jd_text", ""),
-                data.get("raw_clip_text", ""),
-                data.get("source_domain", ""),
-                data.get("apply_url", ""),
-                data.get("publish_date", ""),
-                data.get("deadline", ""),
-                data.get("skills", ""),
-                data.get("status", "未查看"),
-                data.get("match_score"),
-                data.get("recommendation_reason", ""),
-                data.get("clipped_at", ""),
-                _now(),
-                _now(),
-            ),
+            f"INSERT INTO jobs ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+            values,
+        )
+        job_id = cur.lastrowid
+        conn.execute(
+            """INSERT INTO application_events
+               (job_id, from_status, to_status, occurred_at, notes)
+               VALUES (?, NULL, ?, ?, ?)""",
+            (job_id, data.get("status", "未查看"), _now(), "岗位创建"),
         )
         conn.commit()
-        return cur.lastrowid
+        return job_id
     finally:
         conn.close()
 
@@ -365,10 +453,21 @@ def get_job_by_id(job_id: int) -> Optional[Dict]:
 def update_job_status(job_id: int, status: str) -> None:
     conn = get_connection()
     try:
+        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            raise ValueError("岗位不存在")
+        old_status = row["status"] or ""
         conn.execute(
             "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
             (status, _now(), job_id),
         )
+        if old_status != status:
+            conn.execute(
+                """INSERT INTO application_events
+                   (job_id, from_status, to_status, occurred_at)
+                   VALUES (?, ?, ?, ?)""",
+                (job_id, old_status, status, _now()),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -420,11 +519,20 @@ def update_job(job_id: int, data: dict) -> None:
     conn = get_connection()
     try:
         conn.execute(
-            """UPDATE jobs SET company=?, title=?, location=?, role_type=?, skills=?, jd_text=?, apply_url=?, updated_at=?
+            """UPDATE jobs SET company=?, title=?, location=?, role_type=?, skills=?, jd_text=?, apply_url=?,
+               structured_json=?, city_normalized=?, salary_min=?, salary_max=?, salary_unit=?,
+               education_required=?, experience_required=?, job_category=?, category_confidence=?,
+               category_source=?, duplicate_hash=?, source_platform=?, updated_at=?
                WHERE id=?""",
             (data.get("company",""), data.get("title",""), data.get("location",""),
              data.get("role_type",""), data.get("skills",""), data.get("jd_text",""),
-             data.get("apply_url",""), _now(), job_id),
+             data.get("apply_url",""), data.get("structured_json", ""),
+             data.get("city_normalized", ""), data.get("salary_min"), data.get("salary_max"),
+             data.get("salary_unit", ""), data.get("education_required", ""),
+             data.get("experience_required", ""), data.get("job_category", ""),
+             data.get("category_confidence"), data.get("category_source", ""),
+             data.get("duplicate_hash", ""), data.get("source_platform", ""),
+             _now(), job_id),
         )
         conn.commit()
     finally:
@@ -439,6 +547,116 @@ def delete_job(job_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def find_job_by_duplicate_hash(duplicate_hash: str) -> Optional[Dict]:
+    if not duplicate_hash:
+        return None
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE duplicate_hash = ? ORDER BY id LIMIT 1",
+            (duplicate_hash,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def replace_job_skills(job_id: int, skills: List[Dict]) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM job_skills WHERE job_id = ?", (job_id,))
+        for skill in skills:
+            name = (skill.get("skill_name") or "").strip()
+            if not name:
+                continue
+            conn.execute(
+                """INSERT OR IGNORE INTO job_skills
+                   (job_id, skill_name, skill_type, importance_score, source, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    job_id,
+                    name,
+                    skill.get("skill_type", ""),
+                    float(skill.get("importance_score", 1.0)),
+                    skill.get("source", "rule"),
+                    _now(),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_job_skills(job_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM job_skills WHERE job_id = ? ORDER BY importance_score DESC, skill_name",
+            (job_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_application_events(job_id: Optional[int] = None) -> List[Dict]:
+    conn = get_connection()
+    try:
+        if job_id is None:
+            rows = conn.execute(
+                "SELECT * FROM application_events ORDER BY occurred_at DESC, id DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM application_events WHERE job_id = ? ORDER BY occurred_at DESC, id DESC",
+                (job_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def add_model_prediction(data: dict) -> int:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """INSERT INTO model_predictions
+               (job_id, model_name, model_version, prediction_type, prediction_value,
+                confidence, explanation_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data["job_id"], data["model_name"], data.get("model_version", ""),
+                data["prediction_type"], data.get("prediction_value", ""),
+                data.get("confidence"), data.get("explanation_json", ""), _now(),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_job_analysis(job_id: int) -> Optional[Dict]:
+    job = get_job_by_id(job_id)
+    if not job:
+        return None
+    conn = get_connection()
+    try:
+        predictions = conn.execute(
+            """SELECT * FROM model_predictions WHERE job_id = ?
+               ORDER BY created_at DESC, id DESC""",
+            (job_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "job": job,
+        "skills": get_job_skills(job_id),
+        "application_events": get_application_events(job_id),
+        "predictions": [dict(row) for row in predictions],
+    }
 
 
 # ── Resume Library ─────────────────────────────────────────────────────────

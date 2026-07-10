@@ -140,6 +140,10 @@ function ImportModal({ onClose, onImported }) {
   const [form, setForm] = React.useState({ company:"", title:"", location:"", role_type:"数据分析", jd_text:"", apply_url:"", skills:"" });
   const [clipJson, setClipJson] = React.useState("");
   const [smartText, setSmartText] = React.useState("");
+  const [batchText, setBatchText] = React.useState("");
+  const [batchUrl, setBatchUrl] = React.useState("");
+  const [batchFile, setBatchFile] = React.useState(null);
+  const [previewJobs, setPreviewJobs] = React.useState([]);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -195,6 +199,63 @@ function ImportModal({ onClose, onImported }) {
     show("识别成功，请确认后保存");
   };
 
+  const loadImportPreview = async (kind) => {
+    setLoading(true);
+    setPreviewJobs([]);
+    try {
+      let res;
+      if (kind === "url") {
+        if (!batchUrl.trim()) { show("请输入公开岗位链接", "error"); return; }
+        res = await fetch("/api/jobs/import/url/preview", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ url:batchUrl.trim() }),
+        });
+      } else if (kind === "file") {
+        if (!batchFile) { show("请选择 TXT、PDF 或 DOCX 文件", "error"); return; }
+        const fd = new FormData(); fd.append("file", batchFile);
+        res = await fetch("/api/jobs/import/file/preview", { method:"POST", body:fd });
+      } else {
+        if (!batchText.trim()) { show("请粘贴岗位文本", "error"); return; }
+        res = await fetch("/api/jobs/import/text/preview", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ text:batchText }),
+        });
+      }
+      const body = await res.json();
+      if (!res.ok) { show(body.detail || "预览失败", "error"); return; }
+      setPreviewJobs(body.jobs || []);
+      show(`已解析 ${body.jobs?.length || 0} 个岗位，请确认后保存`);
+    } catch (e) {
+      show("预览失败：" + e.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updatePreview = (index, key, value) => {
+    setPreviewJobs(list => list.map((job, i) => i === index ? {...job, [key]:value} : job));
+  };
+
+  const commitPreview = async () => {
+    if (!previewJobs.length) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/jobs/import/commit", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ jobs:previewJobs, allow_duplicates:false }),
+      });
+      const body = await res.json();
+      if (!res.ok) { show(body.detail || "保存失败", "error"); return; }
+      const created = body.created?.length || 0;
+      const duplicates = body.duplicates?.length || 0;
+      show(`已保存 ${created} 个岗位${duplicates ? `，跳过 ${duplicates} 个重复岗位` : ""}`);
+      await onImported();
+      onClose();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const inp = { width:"100%", padding:"7px 10px", border:"1px solid #E5E7EB", borderRadius:8, fontSize:13, color:"#111827", fontFamily:"Inter,sans-serif", outline:"none" };
   const lbl = { fontSize:12, fontWeight:500, color:"#6B7280", marginBottom:4, display:"block" };
 
@@ -207,7 +268,7 @@ function ImportModal({ onClose, onImported }) {
         </div>
 
         <div style={{ display:"flex", gap:0, borderBottom:"1px solid #E5E7EB" }}>
-          {[["smart","✨ 智能识别"],["manual","手动填写"],["clip","Clipper JSON"]].map(([id,label]) => (
+          {[["smart","✨ 智能识别"],["manual","手动填写"],["batch","文件 / 链接"],["clip","Clipper JSON"]].map(([id,label]) => (
             <button key={id} onClick={() => setTab(id)} style={{ padding:"10px 18px", border:"none", borderBottom: tab===id?"2px solid #6366F1":"2px solid transparent", background:"none", fontSize:13, fontWeight: tab===id?600:500, color: tab===id?"#6366F1":"#6B7280", cursor:"pointer", fontFamily:"Inter,sans-serif" }}>
               {label}
             </button>
@@ -249,6 +310,41 @@ function ImportModal({ onClose, onImported }) {
                 <Btn variant="outline" onClick={onClose}>取消</Btn>
                 <Btn variant="primary" onClick={submitManual} disabled={loading}>{loading ? "保存中…" : "保存岗位"}</Btn>
               </div>
+            </div>
+          )}
+          {tab === "batch" && (
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{fontSize:12,color:"#6B7280",background:"#EEF2FF",borderRadius:8,padding:"10px 12px",lineHeight:1.6}}>
+                所有内容都会先生成结构化预览；确认后才写入岗位库。多个文本岗位可用单独一行 <b>---</b> 分隔。
+              </div>
+              <div>
+                <span style={lbl}>批量岗位文本</span>
+                <textarea style={{...inp,minHeight:100,resize:"vertical"}} value={batchText} onChange={e=>setBatchText(e.target.value)} placeholder="岗位一…\n\n---\n\n岗位二…" />
+                <div style={{marginTop:6,textAlign:"right"}}><Btn variant="outline" size="sm" onClick={()=>loadImportPreview("text")} disabled={loading}>预览文本</Btn></div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
+                <div><span style={lbl}>公开岗位链接</span><input style={inp} value={batchUrl} onChange={e=>setBatchUrl(e.target.value)} placeholder="https://company.example/jobs/123" /></div>
+                <Btn variant="outline" onClick={()=>loadImportPreview("url")} disabled={loading}>解析链接</Btn>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
+                <div><span style={lbl}>岗位文件（TXT / PDF / DOCX，最大 5 MB）</span><input type="file" accept=".txt,.pdf,.docx" onChange={e=>setBatchFile(e.target.files?.[0]||null)} style={{...inp,padding:5}} /></div>
+                <Btn variant="outline" onClick={()=>loadImportPreview("file")} disabled={loading}>解析文件</Btn>
+              </div>
+
+              {previewJobs.length > 0 && <div style={{borderTop:"1px solid #E5E7EB",paddingTop:14,display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>待确认岗位（{previewJobs.length}）</div>
+                {previewJobs.map((job,index)=><div key={index} style={{border:"1px solid #E5E7EB",borderRadius:10,padding:12,background:job.duplicate_of?"#FFFBEB":"#F9FAFB"}}>
+                  {job.duplicate_of && <div style={{fontSize:11,color:"#B45309",marginBottom:8}}>检测到重复：{job.duplicate_of.company||""} · {job.duplicate_of.title}</div>}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <input style={inp} value={job.company||""} onChange={e=>updatePreview(index,"company",e.target.value)} placeholder="公司" />
+                    <input style={inp} value={job.title||""} onChange={e=>updatePreview(index,"title",e.target.value)} placeholder="岗位名称" />
+                    <input style={inp} value={job.location||""} onChange={e=>updatePreview(index,"location",e.target.value)} placeholder="地点" />
+                    <input style={inp} value={job.skills||""} onChange={e=>updatePreview(index,"skills",e.target.value)} placeholder="技能" />
+                  </div>
+                  <div style={{fontSize:11,color:"#6B7280",marginTop:8}}>模型大类：{job.job_category||"待分类"} · 学历：{job.education_required||"未识别"} · 薪资：{job.salary_min ? `${job.salary_min}-${job.salary_max} ${job.salary_unit}` : "未识别"}</div>
+                </div>)}
+                <div style={{display:"flex",justifyContent:"flex-end",gap:8}}><Btn variant="outline" onClick={()=>setPreviewJobs([])}>重新解析</Btn><Btn variant="primary" onClick={commitPreview} disabled={loading}>{loading?"保存中…":"确认保存"}</Btn></div>
+              </div>}
             </div>
           )}
           {tab === "clip" && (
