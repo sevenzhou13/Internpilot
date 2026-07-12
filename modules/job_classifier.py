@@ -52,7 +52,10 @@ def _validate_samples(samples: Iterable[Dict[str, Any]]) -> tuple[List[str], Lis
     return texts, labels, distribution
 
 
-def train_job_category_model(samples: List[Dict[str, Any]]) -> Dict[str, Any]:
+def train_job_category_model(
+    samples: List[Dict[str, Any]],
+    evaluation_allowed: bool = True,
+) -> Dict[str, Any]:
     """训练 TF-IDF + Logistic Regression，并只在样本满足条件时输出独立评估。"""
     try:
         import joblib
@@ -71,9 +74,15 @@ def train_job_category_model(samples: List[Dict[str, Any]]) -> Dict[str, Any]:
     ])
 
     minimum_class_count = min(distribution.values())
-    metrics: Dict[str, Any] = {"evaluated": False, "reason": "每类样本不足 2 条，未生成独立验证指标"}
+    metrics: Dict[str, Any] = {
+        "evaluated": False,
+        "reason": (
+            "标签来自 LLM 映射弱监督，未生成可报告的独立验证指标"
+            if not evaluation_allowed else "每类样本不足 2 条，未生成独立验证指标"
+        ),
+    }
     test_count = max(len(distribution), ceil(len(texts) * 0.25))
-    if (
+    if evaluation_allowed and (
         len(texts) >= 8
         and minimum_class_count >= 2
         and len(texts) - test_count >= len(distribution)

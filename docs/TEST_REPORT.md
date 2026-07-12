@@ -102,3 +102,56 @@
 
 - pytest 共 23 项通过。
 - 覆盖岗位与经历的知识切片、持久化、按问题检索和当前岗位过滤。
+
+## 第 4 周前端呈现
+
+- 岗位详情和 AI 助手已接入匹配解释、检索来源展示。
+- 自动化回归 23 项通过；浏览器交互复测保留为本机手工验收项。
+
+## 第 5 周岗位分析控制台基础
+
+- pytest 共 24 项通过。
+- 覆盖岗位类别、投递漏斗、高频技能与个人技能短板聚合；控制台使用同一分析接口展示结果。
+
+## 第 5 周岗位文本聚类
+
+- pytest 共 25 项通过。
+- 覆盖固定种子 K-Means、聚类关键词、代表岗位和 silhouette 指标输出。
+
+## 公开 JD JSONL 导入
+
+- 新增 `scripts/import_public_jds.py` 的子进程回归测试。
+- 覆盖采集字段校验、结构化入库、来源审计说明与 URL 去重。
+
+## 公开数据集抽取与外部标签来源
+
+- 新增 Hugging Face 公开接口抽取脚本的离线回归测试，覆盖岗位名称提取、来源审计字段和 JSONL 输出。
+- 新增外部数据集类别标签的回归测试，覆盖标签来源追踪和模型预测不覆盖已映射外部标签。
+- 完整回归：`compileall` 与 `git diff --check` 通过，pytest 共 28 项通过。
+
+## 批量弱建议复核包
+
+- 新增复核 CSV 建议字段测试，确保模型/规则建议与人工 `category` 列分离。
+- 完整回归：`compileall` 与 `git diff --check` 通过，pytest 共 29 项通过。
+
+## 外部类别训练口径与弱监督隔离
+
+- 新增 LLM 映射标签回归覆盖：默认训练样本查询排除 `llm_mapped`，只有显式传入探索性开关才可读取；模型结果不生成可报告的独立评估指标。
+- 2026-07-11 完整回归：`python -m compileall -q modules server.py scripts`、`python -m pytest` 和 `git diff --check` 均通过；pytest 共 **31 项通过**（12 条第三方依赖弃用警告）。
+
+## 开放岗位 taxonomy
+
+- 覆盖 LLM 自定义类别优先于八类规则兜底、AI 重新解析不覆盖人工确认，以及 API 对任意非空类别的保存与回显；确认旧模型预测不会覆盖 `category_source=llm` 的 AI 分类。
+- 2026-07-11 完整回归：`python -m compileall -q modules server.py scripts`、`python -m pytest` 和 `git diff --check` 均通过；pytest 共 **34 项通过**（12 条第三方依赖弃用警告）。
+
+## 第 6 周 Demo、实验与部署验收
+
+- 覆盖 Demo 独立数据库自动种子化、Demo 强制禁用外部 LLM、候选簇数的 silhouette 选择、实验报告聚合导出和 taxonomy 合并历史。
+- `scripts/security_check.py` 通过：未发现被 Git 跟踪的 `.env`、真实数据库、原始数据或模型产物。
+- `APP_MODE=demo` 下本地 `/health` 返回 `{"status":"ok","mode":"demo"}`，并成功生成 12 条匿名岗位的实验报告；报告仅含聚合统计、关键词和代表岗位标题。
+- 2026-07-11 完整回归：`python -m compileall -q modules server.py scripts`、`python -m pytest` 和 `git diff --check` 均通过；pytest 共 **37 项通过**（12 条第三方依赖弃用警告）。当前内置验收浏览器无法连接此会话的 localhost，因此前端视觉验收仍需在项目所有者本机浏览器完成。
+
+## 匹配交互入口
+
+- API 冒烟测试覆盖单岗位 `POST /api/jobs/{job_id}/match`：在已有偏好和经历时返回四项可解释分数并写回岗位总分。
+- 完整回归仍为 pytest **37 项通过**；安全检查和 `git diff --check` 通过。

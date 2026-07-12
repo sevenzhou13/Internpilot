@@ -47,6 +47,7 @@ function AIAssistant() {
   const [input, setInput] = React.useState("");
   const [selectedJobId, setSelectedJobId] = React.useState(jobs[0]?.id ?? null);
   const [useExp, setUseExp] = React.useState(true);
+  const [retrievedSources, setRetrievedSources] = React.useState([]);
   const [sending, setSending] = React.useState(_chat.sending);
   const bottomRef = React.useRef(null);
 
@@ -87,6 +88,9 @@ function AIAssistant() {
     const now = () => new Date().toLocaleTimeString("zh",{hour:"2-digit",minute:"2-digit"});
 
     try {
+      const params = new URLSearchParams({ query:txt, top_k:"3" });
+      if (selectedJobId) params.set("job_id", selectedJobId);
+      fetch(`/api/knowledge/search?${params}`).then(r=>r.ok?r.json():null).then(data=>setRetrievedSources(data?.chunks || [])).catch(()=>setRetrievedSources([]));
       const res = await fetch("/api/chat/stream", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
@@ -162,6 +166,7 @@ function AIAssistant() {
           {[
             { label:"个人经历库", count:`${experiences.length} 条经历`, on:useExp, toggle:()=>setUseExp(v=>!v) },
             { label:"目标岗位 JD", count: selectedJobId ? "已选择" : "未选择", on:!!selectedJobId },
+            { label:"本地检索", count: retrievedSources.length ? `${retrievedSources.length} 条资料` : "暂无索引结果", on:retrievedSources.length>0 },
             { label:"AI 模型", count: llmOk ? "已配置" : "未配置", on:llmOk },
           ].map((ctx, i) => (
             <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"5px 0", cursor: ctx.toggle?"pointer":"default" }} onClick={ctx.toggle}>
@@ -191,6 +196,7 @@ function AIAssistant() {
         {/* 消息列表 */}
         <div style={{ flex:1, overflowY:"auto", padding:"24px 28px" }}>
           {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+          {retrievedSources.length > 0 && <div style={{maxWidth:"72%",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"10px 12px",marginBottom:16}}><div style={{fontSize:10,fontWeight:700,color:"#6B7280",marginBottom:5}}>本次检索资料</div>{retrievedSources.map(source=><div key={`${source.doc_type}-${source.source_id}-${source.score}`} style={{fontSize:11,color:"#4B5563",lineHeight:1.5,marginTop:4}}>[{source.doc_type} #{source.source_id}] {source.chunk_text.slice(0,120)}{source.chunk_text.length>120?'…':''}</div>)}</div>}
           <div ref={bottomRef} />
         </div>
 

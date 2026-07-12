@@ -21,6 +21,7 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--manual-only", action="store_true", help="仅使用人工复核标签（默认）")
     mode.add_argument("--include-weak-labels", action="store_true", help="混入规则弱标签，仅用于探索")
+    mode.add_argument("--include-llm-mapped", action="store_true", help="使用 LLM 映射标签训练；不输出可报告的独立评估指标")
     args = parser.parse_args()
     if args.db_path:
         os.environ["INTERNPILOT_DB_PATH"] = args.db_path
@@ -32,14 +33,22 @@ def main() -> int:
 
     db.init_db()
     include_weak_labels = bool(args.include_weak_labels)
-    samples = db.get_job_category_training_samples(include_weak_labels)
+    include_llm_mapped = bool(args.include_llm_mapped)
+    samples = db.get_job_category_training_samples(include_weak_labels, include_llm_mapped)
     try:
-        result = train_job_category_model(samples)
+        result = train_job_category_model(samples, evaluation_allowed=not include_llm_mapped)
     except (ClassifierDataError, RuntimeError) as exc:
         print(f"训练未完成：{exc}", file=sys.stderr)
         return 1
-    result["label_mode"] = "manual_plus_rule_weak" if include_weak_labels else "manual_only"
+    reviewed_sources = {item["label_source"] for item in samples if item["label_source"] != "rule_weak"}
+    result["label_mode"] = (
+        "reviewed_plus_rule_weak" if include_weak_labels
+        else ("llm_mapped_weak_supervision" if include_llm_mapped
+              else ("external_dataset_only" if reviewed_sources == {"external_dataset"} else "reviewed_only"))
+    )
     result["manual_sample_count"] = sum(item["label_source"] == "manual" for item in samples)
+    result["external_dataset_sample_count"] = sum(item["label_source"] == "external_dataset" for item in samples)
+    result["llm_mapped_sample_count"] = sum(item["label_source"] == "llm_mapped" for item in samples)
     result["weak_sample_count"] = sum(item["label_source"] == "rule_weak" for item in samples)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

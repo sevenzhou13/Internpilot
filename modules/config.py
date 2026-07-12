@@ -15,6 +15,8 @@ def get_app_mode() -> str:
 def get_database_path() -> Path:
     configured = os.getenv("INTERNPILOT_DB_PATH", "").strip()
     if not configured:
+        if get_app_mode() == "demo":
+            return BASE_DIR / "data" / "internpilot_demo.db"
         return BASE_DIR / "data" / "internpilot.db"
     path = Path(configured).expanduser()
     return path if path.is_absolute() else (BASE_DIR / path).resolve()

@@ -20,6 +20,36 @@ def test_structure_job_extracts_rule_fields_and_skills():
     assert {item["skill_name"] for item in job["skill_rows"]} >= {"Python", "SQL", "Excel"}
 
 
+def test_structure_job_prefers_open_llm_category_over_default_examples():
+    job = structure_job(
+        {"title": "量化研究实习生", "jd_text": "研究因子、构建回测策略"},
+        {
+            "job_category": "量化研究/金融工程",
+            "category_reason": "职责集中于量化因子与策略回测",
+            "taxonomy_note": "建议从算法类中单列量化研究",
+        },
+    )
+
+    assert job["job_category"] == "量化研究/金融工程"
+    assert job["category_source"] == "llm"
+
+
+def test_structure_job_keeps_confirmed_category_during_ai_reparse():
+    job = structure_job(
+        {
+            "title": "量化研究实习生",
+            "jd_text": "研究因子、构建回测策略",
+            "job_category": "金融数据分析",
+            "category_confidence": 1.0,
+            "category_source": "manual",
+        },
+        {"job_category": "量化研究/金融工程"},
+    )
+
+    assert job["job_category"] == "金融数据分析"
+    assert job["category_source"] == "manual"
+
+
 def test_duplicate_hash_prioritizes_normalized_url():
     first = compute_duplicate_hash({"title": "A", "apply_url": "https://example.com/job/1/"})
     second = compute_duplicate_hash({"title": "B", "apply_url": "https://example.com/job/1"})

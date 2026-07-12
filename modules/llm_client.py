@@ -14,7 +14,7 @@ PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 def get_llm_config() -> dict:
     """读取 LLM 配置，支持 OpenAI 及兼容接口。"""
-    if get_app_mode() == "test":
+    if get_app_mode() in {"test", "demo"}:
         return {"api_key": "", "base_url": None, "model": "gpt-4o-mini"}
     try:
         import streamlit as st
@@ -39,6 +39,8 @@ def is_llm_configured() -> bool:
 
 def call_llm(prompt: str, temperature: float = 0.3) -> str:
     """调用 LLM，返回文本。API Key 缺失或调用失败时返回错误提示字符串。"""
+    if get_app_mode() == "demo":
+        return "⚠️ Demo 模式已禁用外部 LLM 调用，以保护示例环境。"
     config = get_llm_config()
     if not config["api_key"]:
         return "⚠️ 未配置 API Key。请在 .env 文件中设置 OPENAI_API_KEY，或在 .streamlit/secrets.toml 中配置。"

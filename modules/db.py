@@ -7,10 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from modules.config import get_database_path
+from modules.config import get_app_mode, get_database_path
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _db_path() -> Path:
@@ -261,7 +261,25 @@ def _migration_v3(conn: sqlite3.Connection) -> None:
     """)
 
 
-MIGRATIONS = {1: _migration_v1, 2: _migration_v2, 3: _migration_v3}
+def _migration_v4(conn: sqlite3.Connection) -> None:
+    """记录用户确认的 taxonomy 合并，避免历史口径丢失。"""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS job_category_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            previous_category TEXT NOT NULL,
+            new_category TEXT NOT NULL,
+            change_source TEXT NOT NULL,
+            reason TEXT,
+            changed_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_category_history_job_time
+            ON job_category_history(job_id, changed_at DESC);
+    """)
+
+
+MIGRATIONS = {1: _migration_v1, 2: _migration_v2, 3: _migration_v3, 4: _migration_v4}
 
 
 def init_db() -> None:
@@ -287,6 +305,11 @@ def init_db() -> None:
                 )
     finally:
         conn.close()
+
+    if get_app_mode() == "demo":
+        from modules.demo_seed import seed_demo_data
+
+        seed_demo_data()
 
 
 def _now() -> str:
@@ -658,8 +681,15 @@ def add_model_prediction(data: dict) -> int:
         conn.close()
 
 
-def save_job_category_label(job_id: int, category: str, reviewer_note: str = "") -> None:
-    """保存人工复核结果，并将其作为岗位当前最可信的类别。"""
+def save_job_category_label(
+    job_id: int,
+    category: str,
+    reviewer_note: str = "",
+    label_source: str = "manual",
+) -> None:
+    """保存人工复核或已映射外部数据集标签。"""
+    if label_source not in {"manual", "external_dataset", "llm_mapped"}:
+        raise ValueError("类别标签来源必须是 manual、external_dataset 或 llm_mapped")
     conn = get_connection()
     try:
         exists = conn.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -669,47 +699,143 @@ def save_job_category_label(job_id: int, category: str, reviewer_note: str = "")
         conn.execute(
             """INSERT INTO job_category_labels
                (job_id, category, label_source, reviewer_note, created_at, updated_at)
-               VALUES (?, ?, 'manual', ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(job_id) DO UPDATE SET
                  category=excluded.category,
-                 label_source='manual',
+                 label_source=excluded.label_source,
                  reviewer_note=excluded.reviewer_note,
                  updated_at=excluded.updated_at""",
-            (job_id, category, reviewer_note, now, now),
+            (job_id, category, label_source, reviewer_note, now, now),
         )
         conn.execute(
             """UPDATE jobs SET job_category = ?, category_confidence = 1.0,
-               category_source = 'manual', updated_at = ? WHERE id = ?""",
-            (category, now, job_id),
+               category_source = ?, updated_at = ? WHERE id = ?""",
+            (category, label_source, now, job_id),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def apply_model_job_category(job_id: int, category: str, confidence: float) -> None:
-    """写回模型结果，但绝不覆盖人工复核的当前类别。"""
+def apply_model_job_category(
+    job_id: int,
+    category: str,
+    confidence: float,
+    category_source: str = "model",
+) -> None:
+    """写回模型建议，但绝不覆盖人工或已映射外部类别。"""
+    if category_source not in {"model", "llm_bootstrap"}:
+        raise ValueError("模型类别来源必须是 model 或 llm_bootstrap")
     conn = get_connection()
     try:
         conn.execute(
             """UPDATE jobs SET job_category = ?, category_confidence = ?,
-               category_source = 'model', updated_at = ?
-               WHERE id = ? AND COALESCE(category_source, '') != 'manual'""",
-            (category, confidence, _now(), job_id),
+               category_source = ?, updated_at = ?
+               WHERE id = ? AND COALESCE(category_source, '') NOT IN ('manual', 'external_dataset', 'llm_mapped', 'llm', 'taxonomy_merge')""",
+            (category, confidence, category_source, _now(), job_id),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def get_job_category_training_samples(include_weak_labels: bool = True) -> List[Dict]:
-    """返回训练样本；人工标签优先，规则结果仅作为可关闭的弱标签。"""
+def get_job_category_options(limit: int = 100) -> List[str]:
+    """返回已实际使用过的类别，供自由 taxonomy 的输入建议使用。"""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT category FROM (
+                   SELECT job_category AS category, updated_at AS changed_at
+                   FROM jobs WHERE TRIM(COALESCE(job_category, '')) != ''
+                   UNION ALL
+                   SELECT category, updated_at AS changed_at
+                   FROM job_category_labels WHERE TRIM(COALESCE(category, '')) != ''
+               )
+               GROUP BY category
+               ORDER BY MAX(changed_at) DESC, category ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [str(row["category"]).strip() for row in rows]
+    finally:
+        conn.close()
+
+
+def get_taxonomy_overview(limit: int = 100) -> Dict[str, List[Dict]]:
+    """返回当前类别频数和最近的用户确认合并记录。"""
+    conn = get_connection()
+    try:
+        categories = conn.execute(
+            """SELECT job_category AS category, COUNT(*) AS count
+               FROM jobs
+               WHERE TRIM(COALESCE(job_category, '')) != ''
+               GROUP BY job_category
+               ORDER BY count DESC, category ASC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        history = conn.execute(
+            """SELECT job_id, previous_category, new_category, change_source, reason, changed_at
+               FROM job_category_history
+               ORDER BY changed_at DESC, id DESC
+               LIMIT 20"""
+        ).fetchall()
+        return {"categories": [dict(row) for row in categories], "history": [dict(row) for row in history]}
+    finally:
+        conn.close()
+
+
+def merge_job_categories(source_category: str, target_category: str, reason: str = "") -> int:
+    """将类别合并为用户确认的 taxonomy 决定，并逐岗位保留变更历史。"""
+    source = (source_category or "").strip()
+    target = (target_category or "").strip()
+    if not source or not target:
+        raise ValueError("来源类别和目标类别不能为空")
+    if source == target:
+        raise ValueError("来源类别和目标类别不能相同")
+    if len(source) > 60 or len(target) > 60:
+        raise ValueError("岗位类别不能超过 60 个字符")
+
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT id FROM jobs WHERE job_category = ?", (source,)).fetchall()
+        now = _now()
+        for row in rows:
+            conn.execute(
+                """INSERT INTO job_category_history
+                   (job_id, previous_category, new_category, change_source, reason, changed_at)
+                   VALUES (?, ?, ?, 'taxonomy_merge', ?, ?)""",
+                (row["id"], source, target, reason.strip(), now),
+            )
+        conn.execute(
+            """UPDATE jobs SET job_category = ?, category_confidence = 1.0,
+               category_source = 'taxonomy_merge', updated_at = ?
+               WHERE job_category = ?""",
+            (target, now, source),
+        )
+        conn.execute(
+            """UPDATE job_category_labels SET category = ?, updated_at = ?
+               WHERE category = ?""",
+            (target, now, source),
+        )
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_job_category_training_samples(
+    include_weak_labels: bool = True,
+    include_llm_mapped: bool = False,
+) -> List[Dict]:
+    """返回训练样本；LLM 映射标签必须显式启用。"""
     conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT jobs.id AS job_id, jobs.title, jobs.jd_text, jobs.skills,
                       jobs.job_category AS rule_category, jobs.category_confidence,
-                      labels.category AS manual_category, labels.reviewer_note
+                      labels.category AS manual_category, labels.label_source AS label_source,
+                      labels.reviewer_note
                FROM jobs
                LEFT JOIN job_category_labels AS labels ON labels.job_id = jobs.id
                ORDER BY jobs.id"""
@@ -721,7 +847,9 @@ def get_job_category_training_samples(include_weak_labels: bool = True) -> List[
     for row in rows:
         item = dict(row)
         category = item.get("manual_category")
-        source = "manual"
+        source = item.get("label_source") or "manual"
+        if category and source == "llm_mapped" and not include_llm_mapped:
+            continue
         if not category and include_weak_labels:
             category = item.get("rule_category")
             source = "rule_weak"

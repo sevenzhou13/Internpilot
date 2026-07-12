@@ -43,6 +43,9 @@ def test_health_and_basic_crud_without_llm(tmp_path, monkeypatch):
     explanation = client.get(f"/api/jobs/{job.json()['id']}/match-explanation")
     assert explanation.status_code == 200
     assert {"skills", "experience", "requirements", "location"} == set(explanation.json()["scores"])
+    rematched = client.post(f"/api/jobs/{job.json()['id']}/match")
+    assert rematched.status_code == 200
+    assert rematched.json()["score"] >= 0
     assert client.get("/api/llm/status").json() == {"configured": False}
 
 
@@ -125,3 +128,40 @@ def test_category_review_train_and_predict_api(tmp_path, monkeypatch):
     analysis = client.get(f"/api/jobs/{job_ids[-1]}/analysis").json()
     assert analysis["job"]["category_source"] == "manual"
     assert analysis["predictions"][0]["prediction_type"] == "job_category"
+
+
+def test_category_label_accepts_open_taxonomy_values(tmp_path, monkeypatch):
+    client = TestClient(_load_app(tmp_path, monkeypatch))
+    job = client.post("/api/jobs", json={"title": "量化研究实习生", "jd_text": "构建金融因子"})
+    assert job.status_code == 200
+
+    labeled = client.post(
+        f"/api/jobs/{job.json()['id']}/category-label",
+        json={"category": "量化研究/金融工程", "reviewer_note": "新 taxonomy 示例"},
+    )
+    assert labeled.status_code == 200
+    queue = client.get("/api/jobs/categories/review").json()
+    assert queue["category_mode"] == "open_taxonomy"
+    assert "量化研究/金融工程" in queue["categories"]
+
+
+def test_taxonomy_merge_is_confirmed_and_keeps_history(tmp_path, monkeypatch):
+    client = TestClient(_load_app(tmp_path, monkeypatch))
+    job = client.post("/api/jobs", json={"title": "数据分析实习生", "jd_text": "SQL 数据分析"}).json()
+    labeled = client.post(
+        f"/api/jobs/{job['id']}/category-label",
+        json={"category": "商业数据分析", "reviewer_note": "taxonomy test"},
+    )
+    assert labeled.status_code == 200
+
+    merged = client.post(
+        "/api/taxonomy/merge",
+        json={"source_category": "商业数据分析", "target_category": "数据分析", "reason": "合并近义类别"},
+    )
+    assert merged.status_code == 200
+    assert merged.json()["affected_jobs"] == 1
+    analysis = client.get(f"/api/jobs/{job['id']}/analysis").json()
+    assert analysis["job"]["job_category"] == "数据分析"
+    assert analysis["job"]["category_source"] == "taxonomy_merge"
+    taxonomy = client.get("/api/taxonomy").json()
+    assert taxonomy["history"][0]["previous_category"] == "商业数据分析"

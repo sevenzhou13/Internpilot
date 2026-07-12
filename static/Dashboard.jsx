@@ -17,11 +17,71 @@ function StatCard({ label, value, delta, color="#6366F1", icon }) {
   );
 }
 
+function InsightCard({ title, items, emptyText="暂无数据" }) {
+  return <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+    <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:10}}>{title}</div>
+    {items?.length ? items.slice(0,5).map(item=><div key={item.name} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#6B7280",padding:"4px 0"}}><span>{item.name}</span><span style={{fontWeight:700,color:"#374151"}}>{item.count}</span></div>) : <div style={{fontSize:12,color:"#9CA3AF",padding:"8px 0"}}>{emptyText}</div>}
+  </div>;
+}
+
+function TaxonomyManager({ taxonomy, onChanged }) {
+  const { show, ToastContainer } = useToast();
+  const { confirm, ConfirmModal } = useConfirm();
+  const categories = taxonomy?.categories || [];
+  const [source, setSource] = React.useState("");
+  const [targetChoice, setTargetChoice] = React.useState("");
+  const [customTarget, setCustomTarget] = React.useState("");
+  const [reason, setReason] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const target = (targetChoice === "__custom__" ? customTarget : targetChoice).trim();
+
+  const merge = async () => {
+    if (!source || !target) { show("请选择来源和目标类别", "error"); return; }
+    if (source === target) { show("来源和目标类别不能相同", "error"); return; }
+    const sourceCount = categories.find(item => item.category === source)?.count || 0;
+    const ok = await confirm({ title:"确认合并类别", message:`将 ${sourceCount} 个“${source}”岗位合并为“${target}”。原类别会保留在历史记录中。`, confirmText:"确认合并", confirmColor:"#6366F1" });
+    if (!ok) return;
+    setSaving(true);
+    const res = await fetch("/api/taxonomy/merge", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({source_category:source,target_category:target,reason}) });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) { show(data.detail || "类别合并失败", "error"); return; }
+    setSource(""); setTargetChoice(""); setCustomTarget(""); setReason("");
+    await onChanged();
+    show(`已合并 ${data.affected_jobs} 个岗位`);
+  };
+
+  if (!categories.length) return null;
+  const input = {padding:"7px 9px",border:"1px solid #E5E7EB",borderRadius:7,fontSize:11,color:"#374151",background:"#fff"};
+  return <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.06)",marginBottom:24}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}><div style={{fontSize:13,fontWeight:700,color:"#374151"}}>岗位类别体系</div><span style={{fontSize:11,color:"#9CA3AF"}}>开放 taxonomy · 用户确认后生效</span></div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"10px 0 12px"}}>{categories.slice(0,10).map(item=><span key={item.category} style={{fontSize:11,padding:"4px 8px",borderRadius:9999,background:"#F3F4F6",color:"#4B5563"}}>{item.category} · {item.count}</span>)}</div>
+    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <select value={source} onChange={e=>setSource(e.target.value)} style={input}><option value="">来源类别</option>{categories.map(item=><option key={item.category} value={item.category}>{item.category}</option>)}</select>
+      <span style={{fontSize:12,color:"#9CA3AF"}}>→</span>
+      <select value={targetChoice} onChange={e=>setTargetChoice(e.target.value)} style={input}><option value="">目标类别</option>{categories.map(item=><option key={item.category} value={item.category}>{item.category}</option>)}<option value="__custom__">输入新类别…</option></select>
+      {targetChoice === "__custom__" && <input value={customTarget} onChange={e=>setCustomTarget(e.target.value)} placeholder="新类别" style={{...input,minWidth:130}} />}
+      <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="合并原因（可选）" style={{...input,minWidth:160,flex:1}} />
+      <Btn variant="outline" size="sm" onClick={merge} disabled={saving}>{saving?"合并中…":"确认合并"}</Btn>
+    </div>
+    {taxonomy.history?.length > 0 && <div style={{fontSize:10,color:"#9CA3AF",marginTop:10}}>最近变更：{taxonomy.history[0].previous_category} → {taxonomy.history[0].new_category}</div>}
+    {ConfirmModal}<ToastContainer />
+  </div>;
+}
+
 function Dashboard({ onNav }) {
-  const { jobs, llmOk } = React.useContext(AppContext);
+  const { jobs, llmOk, refresh } = React.useContext(AppContext);
   const [stats, setStats] = React.useState(null);
   const [topJobs, setTopJobs] = React.useState([]);
   const [recent, setRecent] = React.useState([]);
+  const [analytics, setAnalytics] = React.useState(null);
+  const [clusters, setClusters] = React.useState(null);
+  const [taxonomy, setTaxonomy] = React.useState(null);
+
+  const refreshTaxonomy = React.useCallback(async () => {
+    const data = await fetch("/api/taxonomy").then(r=>r.ok?r.json():null).catch(()=>null);
+    setTaxonomy(data);
+  }, []);
 
   React.useEffect(() => {
     fetch("/api/dashboard/stats").then(r => r.json()).then(d => {
@@ -29,7 +89,10 @@ function Dashboard({ onNav }) {
       setTopJobs(d.top_jobs || []);
       setRecent(d.recent_outputs || []);
     });
-  }, [jobs]);
+    fetch("/api/analytics/overview").then(r=>r.ok?r.json():null).then(setAnalytics).catch(()=>setAnalytics(null));
+    fetch("/api/analytics/clusters?max_clusters=4").then(r=>r.ok?r.json():null).then(setClusters).catch(()=>setClusters(null));
+    refreshTaxonomy();
+  }, [jobs, refreshTaxonomy]);
 
   if (!stats) return (
     <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#9CA3AF" }}>
@@ -55,6 +118,20 @@ function Dashboard({ onNav }) {
         <StatCard label="已投递" value={stats.applied} color="#3B82F6" icon="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         <StatCard label="面试中" value={stats.interviewing} color="#F59E0B" icon="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
       </div>
+
+      {stats.total > 0 && analytics && <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
+        <InsightCard title="岗位类别" items={analytics.categories} />
+        <InsightCard title="投递漏斗" items={analytics.funnel} />
+        <InsightCard title="高频技能" items={analytics.top_skills} />
+        <InsightCard title="技能短板" items={analytics.skill_gaps} emptyText="经历与岗位技能匹配良好" />
+      </div>}
+
+      {clusters?.clusters?.length > 0 && <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.06)",marginBottom:24}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div style={{fontSize:13,fontWeight:700,color:"#374151"}}>岗位需求聚类</div><div style={{fontSize:11,color:"#9CA3AF"}}>{clusters.metrics?.evaluated ? `自动选取 ${clusters.metrics.selected_cluster_count} 簇 · silhouette ${clusters.metrics.silhouette}` : clusters.metrics?.reason}</div></div>
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(clusters.clusters.length,4)},1fr)`,gap:10}}>{clusters.clusters.map(cluster=><div key={cluster.cluster_id} style={{background:"#F9FAFB",borderRadius:8,padding:"10px 12px"}}><div style={{fontSize:11,fontWeight:700,color:"#4F46E5",marginBottom:5}}>需求簇 {cluster.cluster_id+1} · {cluster.size} 岗</div><div style={{fontSize:11,color:"#4B5563",lineHeight:1.55}}>{cluster.keywords.slice(0,4).join(' · ')}</div></div>)}</div>
+      </div>}
+
+      {stats.total > 0 && <TaxonomyManager taxonomy={taxonomy} onChanged={async () => { await refresh(); await refreshTaxonomy(); }} />}
 
       {stats.total === 0 ? (
         <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:40, textAlign:"center" }}>

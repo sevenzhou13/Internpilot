@@ -6,11 +6,12 @@
 1. 只根据给定文本提取，不要编造。
 2. 无法判断的字段填 "" 或 []。
 3. role_type 只能从以下选：数据分析、AI产品、产品经理、用户研究、其他。
-4. skills 提取岗位明确需要的技能，数组格式，例如 ["Python","SQL","数据分析"]。
-5. responsibilities 提取岗位职责条目，数组格式，每条去掉序号前缀。
-6. requirements 提取岗位要求条目，数组格式，每条去掉序号前缀。
-7. 如果包含多个岗位，优先提取页面标题或最突出的岗位。
-8. company 字段提取招聘公司名称（非平台名，如"腾讯"而非"腾讯招聘"）。
+4. job_category 是岗位职能分类。请根据岗位名称和职责给出最合适、简洁的类别名称；不要被任何固定类别列表限制，可以新增、合并或细分标签。category_reason 用一句话说明分类依据；taxonomy_note 仅在当前类别明显需要新增、合并或拆分时说明建议，否则填 ""。
+5. skills 提取岗位明确需要的技能，数组格式，例如 ["Python","SQL","数据分析"]。
+6. responsibilities 提取岗位职责条目，数组格式，每条去掉序号前缀。
+7. requirements 提取岗位要求条目，数组格式，每条去掉序号前缀。
+8. 如果包含多个岗位，优先提取页面标题或最突出的岗位。
+9. company 字段提取招聘公司名称（非平台名，如"腾讯"而非"腾讯招聘"）。
 
 页面标题：{page_title}
 页面 URL：{url}
@@ -19,4 +20,4 @@
 {clip_text}
 
 输出 JSON 格式：
-{{"company":"","title":"","location":"","role_type":"","summary":"","responsibilities":[],"requirements":[],"skills":[],"risk_points":[]}}
+{{"company":"","title":"","location":"","role_type":"","job_category":"","category_reason":"","taxonomy_note":"","summary":"","responsibilities":[],"requirements":[],"skills":[],"risk_points":[]}}

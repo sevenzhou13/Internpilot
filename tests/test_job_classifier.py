@@ -47,6 +47,35 @@ def test_manual_category_label_overrides_rules_and_is_returned_as_training_data(
     assert queue[0]["reviewed_category"] == "销售/咨询/项目管理"
 
 
+def test_external_dataset_category_label_is_preserved_and_reported(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERNPILOT_DB_PATH", str(tmp_path / "external-labels.db"))
+    db.init_db()
+    job_id = db.add_job({"title": "后端工程师", "jd_text": "Python 服务端开发"})
+
+    db.save_job_category_label(job_id, "后端开发", "原始类别已映射", "external_dataset")
+    db.apply_model_job_category(job_id, "数据分析/BI", 0.9)
+
+    samples = db.get_job_category_training_samples(False)
+    saved = db.get_job_by_id(job_id)
+    assert samples[0]["label_source"] == "external_dataset"
+    assert saved["job_category"] == "后端开发"
+    assert saved["category_source"] == "external_dataset"
+
+
+def test_llm_mapped_labels_require_explicit_training_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTERNPILOT_DB_PATH", str(tmp_path / "llm-labels.db"))
+    db.init_db()
+    job_id = db.add_job({"title": "产品经理", "jd_text": "负责需求分析和原型设计"})
+
+    db.save_job_category_label(job_id, "产品/AI产品", "LLM 映射", "llm_mapped")
+    db.apply_model_job_category(job_id, "数据分析/BI", 0.9)
+
+    assert db.get_job_category_training_samples(False) == []
+    samples = db.get_job_category_training_samples(False, include_llm_mapped=True)
+    assert samples[0]["label_source"] == "llm_mapped"
+    assert db.get_job_by_id(job_id)["job_category"] == "产品/AI产品"
+
+
 def test_classifier_reports_held_out_metrics_when_label_data_is_sufficient(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERNPILOT_DB_PATH", str(tmp_path / "metrics.db"))
     monkeypatch.setenv("INTERNPILOT_MODEL_DIR", str(tmp_path / "models"))

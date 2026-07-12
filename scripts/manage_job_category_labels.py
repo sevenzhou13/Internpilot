@@ -28,6 +28,7 @@ def export_labels(args: argparse.Namespace) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     columns = [
         "job_id", "company", "title", "rule_category", "rule_confidence",
+        "suggested_category", "suggestion_confidence", "suggestion_source",
         "category", "reviewer_note", "jd_preview",
     ]
     with output.open("w", encoding="utf-8-sig", newline="") as handle:
@@ -40,6 +41,9 @@ def export_labels(args: argparse.Namespace) -> int:
                 "title": job.get("title") or "",
                 "rule_category": job.get("job_category") or "",
                 "rule_confidence": job.get("category_confidence") or "",
+                "suggested_category": job.get("job_category") or "",
+                "suggestion_confidence": job.get("category_confidence") or "",
+                "suggestion_source": job.get("category_source") or "",
                 "category": job.get("reviewed_category") or "",
                 "reviewer_note": job.get("reviewer_note") or "",
                 "jd_preview": (job.get("jd_text") or "").replace("\n", " ")[:500],
@@ -70,14 +74,19 @@ def import_labels(args: argparse.Namespace) -> int:
                 continue
             try:
                 job_id = int(row.get("job_id") or "")
-                db.save_job_category_label(job_id, category, (row.get("reviewer_note") or "").strip())
+                db.save_job_category_label(
+                    job_id,
+                    category,
+                    (row.get("reviewer_note") or "").strip(),
+                    args.label_source,
+                )
                 updated += 1
             except (TypeError, ValueError) as exc:
                 errors.append(f"第 {line_number} 行：{exc}")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print(f"已导入 {updated} 条人工复核标签")
+    print(f"已导入 {updated} 条{args.label_source}类别标签")
     return 0
 
 
@@ -91,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.set_defaults(handler=export_labels)
     import_parser = subparsers.add_parser("import", help="导入人工复核 CSV")
     import_parser.add_argument("--input", required=True, help="输入 CSV 路径")
+    import_parser.add_argument(
+        "--label-source",
+        choices=("manual", "external_dataset"),
+        default="manual",
+        help="标签来源；外部数据集类别完成口径映射时使用 external_dataset",
+    )
     import_parser.set_defaults(handler=import_labels)
     return parser
 

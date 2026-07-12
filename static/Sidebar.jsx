@@ -11,18 +11,20 @@ function AppProvider({ children }) {
   const [education, setEducation] = React.useState([]);
   const [profile, setProfile] = React.useState(null);
   const [llmOk, setLlmOk] = React.useState(false);
+  const [appMode, setAppMode] = React.useState("local");
   const [loading, setLoading] = React.useState(true);
   const [matchStatus, setMatchStatus] = React.useState("idle"); // idle | running | done
 
   const refresh = React.useCallback(async () => {
     try {
-      const [jobsRes, expsRes, resumesRes, eduRes, profileRes, llmRes] = await Promise.all([
+      const [jobsRes, expsRes, resumesRes, eduRes, profileRes, llmRes, healthRes] = await Promise.all([
         fetch("/api/jobs").then(r => r.json()),
         fetch("/api/experiences").then(r => r.json()),
         fetch("/api/resumes").then(r => r.json()),
         fetch("/api/education").then(r => r.json()),
         fetch("/api/profile").then(r => r.json()),
         fetch("/api/llm/status").then(r => r.json()),
+        fetch("/health").then(r => r.json()),
       ]);
       setJobs(Array.isArray(jobsRes) ? jobsRes : []);
       setExperiences(Array.isArray(expsRes) ? expsRes : []);
@@ -30,6 +32,7 @@ function AppProvider({ children }) {
       setEducation(Array.isArray(eduRes) ? eduRes : []);
       setProfile(Object.keys(profileRes).length ? profileRes : null);
       setLlmOk(!!llmRes.configured);
+      setAppMode(healthRes.mode || "local");
     } catch (e) {
       console.error("refresh failed", e);
     } finally {
@@ -61,7 +64,7 @@ function AppProvider({ children }) {
   React.useEffect(() => { refresh(); }, []);
 
   return (
-    <AppContext.Provider value={{ jobs, experiences, resumes, education, profile, llmOk, loading, refresh, refreshMatchScores, matchStatus, runMatchAll }}>
+    <AppContext.Provider value={{ jobs, experiences, resumes, education, profile, llmOk, appMode, loading, refresh, refreshMatchScores, matchStatus, runMatchAll }}>
       {loading ? (
         <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", color:"#9CA3AF", fontFamily:"Inter,sans-serif", fontSize:14 }}>
           加载中...
@@ -200,7 +203,7 @@ const NAV = [
 ];
 
 function Sidebar({ active, onNav }) {
-  const { jobs, llmOk, matchStatus } = React.useContext(AppContext);
+  const { jobs, llmOk, appMode, matchStatus } = React.useContext(AppContext);
   const highMatch = jobs.filter(j => (j.match_score||0) >= 80).length;
 
   return (
@@ -220,6 +223,11 @@ function Sidebar({ active, onNav }) {
         {!llmOk && (
           <div style={{ marginTop:8, fontSize:11, color:"#D97706", background:"#FFFBEB", borderRadius:6, padding:"4px 8px" }}>
             ⚠️ 未配置 API Key
+          </div>
+        )}
+        {appMode === "demo" && (
+          <div style={{ marginTop:8, fontSize:11, color:"#0369A1", background:"#F0F9FF", borderRadius:6, padding:"4px 8px" }}>
+            ℹ️ 匿名 Demo · 外部 AI 已禁用
           </div>
         )}
       </div>

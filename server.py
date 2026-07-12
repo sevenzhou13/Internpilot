@@ -41,6 +41,9 @@ from modules.db import (
     get_generated_outputs,
     get_job_analysis,
     get_job_category_review_queue,
+    get_job_category_options,
+    get_taxonomy_overview,
+    merge_job_categories,
     get_job_category_training_samples,
     get_job_by_id,
     find_job_by_duplicate_hash,
@@ -255,6 +258,12 @@ class CategoryLabelIn(BaseModel):
 
 class CategoryTrainingIn(BaseModel):
     include_weak_labels: bool = False
+
+
+class TaxonomyMergeIn(BaseModel):
+    source_category: str
+    target_category: str
+    reason: str = ""
 
 
 class EducationIn(BaseModel):
@@ -526,25 +535,41 @@ def api_commit_job_import(data: ImportCommitIn):
 
 @app.get("/api/jobs/categories/review")
 def api_get_category_review_queue(limit: int = 50):
-    from modules.job_classifier import get_category_names
+    from modules.job_structurer import DEFAULT_JOB_CATEGORY_EXAMPLES
 
     return {
-        "categories": get_category_names(),
+        "categories": list(dict.fromkeys([*get_job_category_options(), *DEFAULT_JOB_CATEGORY_EXAMPLES])),
+        "category_mode": "open_taxonomy",
         "jobs": get_job_category_review_queue(limit),
     }
 
 
 @app.post("/api/jobs/{job_id}/category-label")
 def api_save_job_category_label(job_id: int, data: CategoryLabelIn):
-    from modules.job_classifier import get_category_names
-
-    if data.category not in get_category_names():
-        raise HTTPException(400, detail="不支持的岗位类别")
+    category = data.category.strip()
+    if not category:
+        raise HTTPException(400, detail="岗位类别不能为空")
+    if len(category) > 60:
+        raise HTTPException(400, detail="岗位类别不能超过 60 个字符")
     try:
-        save_job_category_label(job_id, data.category, data.reviewer_note)
+        save_job_category_label(job_id, category, data.reviewer_note)
     except ValueError as exc:
         raise HTTPException(404, detail=str(exc))
-    return {"ok": True, "category": data.category, "source": "manual"}
+    return {"ok": True, "category": category, "source": "manual"}
+
+
+@app.get("/api/taxonomy")
+def api_get_taxonomy_overview():
+    return get_taxonomy_overview()
+
+
+@app.post("/api/taxonomy/merge")
+def api_merge_taxonomy(data: TaxonomyMergeIn):
+    try:
+        affected = merge_job_categories(data.source_category, data.target_category, data.reason)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return {"ok": True, "affected_jobs": affected, "source_category": data.source_category.strip(), "target_category": data.target_category.strip()}
 
 
 @app.post("/api/models/job-category/train")
@@ -614,6 +639,23 @@ def api_get_job_match_explanation(job_id: int):
     if not experiences:
         raise HTTPException(400, detail="请先录入个人经历")
     return calculate_match_explanation(job, profile, experiences, get_all_education())
+
+
+@app.post("/api/jobs/{job_id}/match")
+def api_match_single_job(job_id: int):
+    """显式重算单个岗位，供详情页的匹配交互使用。"""
+    job = get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(404, detail="岗位不存在")
+    profile = get_profile()
+    if not profile:
+        raise HTTPException(400, detail="请先设置求职偏好")
+    experiences = get_all_experiences()
+    if not experiences:
+        raise HTTPException(400, detail="请先录入个人经历")
+    explanation = calculate_match_explanation(job, profile, experiences, get_all_education())
+    update_job_match_result(job_id, explanation["score"], job.get("recommendation_reason") or "")
+    return explanation
 
 
 @app.post("/api/knowledge/rebuild")
@@ -1128,6 +1170,20 @@ def api_dashboard_stats():
     )[:5]
     recent = get_generated_outputs(limit=5)
     return {"stats": stats, "top_jobs": top_jobs, "recent_outputs": recent}
+
+
+@app.get("/api/analytics/overview")
+def api_analytics_overview():
+    from modules.analytics import get_analytics_overview
+
+    return get_analytics_overview()
+
+
+@app.get("/api/analytics/clusters")
+def api_analytics_clusters(max_clusters: int = 4):
+    from modules.job_clustering import cluster_jobs
+
+    return cluster_jobs(max_clusters)
 
 
 @app.get("/api/generate/history/{job_id}")

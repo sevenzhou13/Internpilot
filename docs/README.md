@@ -14,5 +14,10 @@
 | `context/PROJECT_MEMORY.md` | 有界长期记忆与协作规则 | 事实、文档路由或工作方式变化 |
 | `context/HANDOFF.md` | 当前状态与下一步 | 每次交接或任务完成 |
 | `training/` | 标签、训练、评估操作手册 | 训练流程或数据契约变化 |
+| `DEMO.md` | 匿名演示的运行边界和步骤 | Demo 行为变化 |
+| `DEPLOYMENT.md` | 云端配置与安全验收 | 部署或安全流程变化 |
+| `COURSE_DELIVERY.md` | 课程实验、答辩和提交材料 | 课程交付变化 |
 
 `archive/` 存放被替代的 Streamlit 方案和重组前文档，只可用于历史追溯；不可作为当前代码或设计的依据。
+
+当前训练操作入口：`training/JOB_CATEGORY_TRAINING.md`；用户授权公开数据的采集与 JSONL 契约：`training/PUBLIC_JD_COLLECTION.md`。

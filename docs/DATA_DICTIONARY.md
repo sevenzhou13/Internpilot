@@ -1,6 +1,6 @@
 # InternPilot 数据字典
 
-最后更新：2026-07-10
+最后更新：2026-07-11
 
 ## 当前表
 
@@ -15,16 +15,17 @@
 | `generated_outputs` | 生成历史 | 岗位、类型、内容、时间 |
 | `interview_notes` | 面试知识和笔记 | 内容、问题、技能点 |
 
-## 第 2–3 周扩展（已实现，数据库版本 3）
+## 第 2–6 周扩展（已实现，数据库版本 4）
 
 | 结构 | 用途 |
 |---|---|
-| `jobs` 新字段 | `structured_json`、标准城市、薪资、学历/经验要求、岗位大类、置信度、去重哈希 |
+| `jobs` 新字段 | `structured_json`（含 AI 分类依据和 taxonomy 建议）、标准城市、薪资、学历/经验要求、开放岗位类别、置信度、去重哈希 |
 | `job_skills` | 一条岗位一个标准技能标签，保存类型、重要度和来源 |
 | `application_events` | 记录每次投递状态变化、时间、下一步、反馈和评分 |
 | `model_predictions` | 保存模型名称、版本、预测类型、结果、置信度和解释 |
 | `knowledge_chunks` | 保存 RAG 文本片段、来源、内容哈希和向量索引标识 |
-| `job_category_labels` | 人工复核岗位类别，作为可追溯训练标签 |
+| `job_category_labels` | 岗位类别及来源；`label_source` 可为 `manual`、`external_dataset` 或仅探索性使用的 `llm_mapped`。后者不可作为正式训练真值或正式指标来源。 |
+| `job_category_history` | 用户确认合并 taxonomy 时保存每个岗位的旧类别、新类别、原因和时间，保证分析口径可追溯。 |
 
 岗位去重规则：存在 URL 时以规范化 URL 为主键语义；没有 URL 时使用公司、标题和标准城市；字段全部缺失时才使用 JD 文本哈希。
 

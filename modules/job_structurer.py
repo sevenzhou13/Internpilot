@@ -8,7 +8,8 @@ from urllib.parse import urlparse
 
 
 ROLE_TYPES = ["数据分析", "AI产品", "产品经理", "用户研究", "其他"]
-JOB_CATEGORIES = [
+# 仅作为无 LLM 时的兜底示例和新用户可见的初始选项；岗位分类并不受此列表约束。
+DEFAULT_JOB_CATEGORY_EXAMPLES = [
     "产品/AI产品",
     "数据分析/BI",
     "算法/机器学习",
@@ -53,6 +54,7 @@ SKILL_DICTIONARY: dict[str, tuple[str, tuple[str, ...]]] = {
     "逻辑思维": ("软技能", ("逻辑思维", "逻辑能力")),
 }
 
+# 仅在未进行 AI 解析时提供低置信度兜底，不能视为稳定的产品 taxonomy 或训练真值。
 CATEGORY_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("算法/机器学习", ("算法", "机器学习", "深度学习", "大模型", "nlp", "计算机视觉")),
     ("数据分析/BI", ("数据分析", "商业分析", "业务分析", "数据运营", "bi工程")),
@@ -216,7 +218,23 @@ def structure_job(data: Dict, parsed: Dict | None = None) -> Dict:
     explicit_skills = parsed.get("skills") or data.get("skills") or []
     skill_rows = extract_skills(raw_text, explicit_skills)
     salary_min, salary_max, salary_unit = parse_salary(raw_text)
-    category, confidence = infer_job_category(merged.get("title", ""), raw_text)
+    fallback_category, fallback_confidence = infer_job_category(merged.get("title", ""), raw_text)
+    parsed_category = _normalize(parsed.get("job_category", ""))
+    parsed_confidence = parsed.get("category_confidence")
+    confirmed_source = _normalize(merged.get("category_source", ""))
+    existing_category = _normalize(merged.get("job_category", ""))
+    if existing_category and confirmed_source in {"manual", "external_dataset", "taxonomy_merge"}:
+        category = existing_category
+        confidence = merged.get("category_confidence") or 1.0
+        category_source = confirmed_source
+    elif parsed_category:
+        category = parsed_category
+        confidence = float(parsed_confidence) if isinstance(parsed_confidence, (int, float)) else 1.0
+        category_source = "llm"
+    else:
+        category = fallback_category
+        confidence = fallback_confidence
+        category_source = "rule" if category else ""
     if not merged.get("role_type") or merged.get("role_type") in {"待解析", "其他"}:
         merged["role_type"] = infer_role_type(category, merged.get("title", ""))
 
@@ -225,6 +243,8 @@ def structure_job(data: Dict, parsed: Dict | None = None) -> Dict:
         "responsibilities": parsed.get("responsibilities", []),
         "requirements": parsed.get("requirements", []),
         "risk_points": parsed.get("risk_points", []),
+        "category_reason": parsed.get("category_reason", ""),
+        "taxonomy_note": parsed.get("taxonomy_note", ""),
         "skills": skill_rows,
     }
     merged.update({
@@ -236,7 +256,7 @@ def structure_job(data: Dict, parsed: Dict | None = None) -> Dict:
         "experience_required": extract_experience_requirement(raw_text),
         "job_category": category,
         "category_confidence": confidence,
-        "category_source": "rule" if category else "",
+        "category_source": category_source,
         "source_platform": infer_source_platform(
             merged.get("apply_url", ""), merged.get("source_domain", "")
         ),

@@ -15,10 +15,13 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
   const [editForm, setEditForm] = React.useState({});
   const [saving, setSaving] = React.useState(false);
   const [analysis, setAnalysis] = React.useState(null);
+  const [matchExplanation, setMatchExplanation] = React.useState(null);
+  const [resumeMatches, setResumeMatches] = React.useState([]);
+  const [matching, setMatching] = React.useState(false);
   const [categories, setCategories] = React.useState([]);
-  const [selectedCategory, setSelectedCategory] = React.useState("");
+  const [categorySelection, setCategorySelection] = React.useState("");
+  const [customCategory, setCustomCategory] = React.useState("");
   const [savingCategory, setSavingCategory] = React.useState(false);
-  const [predictingCategory, setPredictingCategory] = React.useState(false);
 
   React.useEffect(() => { setApplyUrl(job?.apply_url || ""); }, [job?.id]);
   React.useEffect(() => {
@@ -28,13 +31,17 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
       .then(data => {
         const options = data?.categories || [];
         setCategories(options);
-        setSelectedCategory(options.includes(job.job_category) ? job.job_category : "");
+        const current = job.job_category || "";
+        setCategorySelection(current && options.includes(current) ? current : (current ? "__custom__" : ""));
+        setCustomCategory(current && !options.includes(current) ? current : "");
       })
       .catch(() => setCategories([]));
   }, [job?.id, job?.job_category]);
   React.useEffect(() => {
     if (!job?.id) return;
     fetch(`/api/jobs/${job.id}/analysis`).then(r=>r.ok?r.json():null).then(setAnalysis).catch(()=>setAnalysis(null));
+    fetch(`/api/jobs/${job.id}/match-explanation`).then(r=>r.ok?r.json():null).then(setMatchExplanation).catch(()=>setMatchExplanation(null));
+    fetch(`/api/resumes/match-scores?job_id=${job.id}`).then(r=>r.ok?r.json():[]).then(setResumeMatches).catch(()=>setResumeMatches([]));
   }, [job?.id, job?.updated_at]);
 
   const startEdit = () => {
@@ -76,12 +83,24 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
     show("链接已保存");
   };
 
+  const runMatching = async () => {
+    setMatching(true);
+    const res = await fetch(`/api/jobs/${job.id}/match`, { method:"POST" });
+    const data = await res.json().catch(() => ({}));
+    setMatching(false);
+    if (!res.ok) { show(data.detail || "匹配计算失败", "error"); return; }
+    setMatchExplanation(data);
+    await refresh();
+    show("岗位匹配已更新");
+  };
+
   const saveCategory = async () => {
-    if (!selectedCategory) { show("请选择岗位类别", "error"); return; }
+    const category = (categorySelection === "__custom__" ? customCategory : categorySelection).trim();
+    if (!category) { show(categorySelection === "__custom__" ? "请输入岗位类别" : "请选择岗位类别", "error"); return; }
     setSavingCategory(true);
     const res = await fetch(`/api/jobs/${job.id}/category-label`, {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ category:selectedCategory }),
+      body:JSON.stringify({ category }),
     });
     setSavingCategory(false);
     if (!res.ok) {
@@ -91,19 +110,6 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
     }
     await refresh();
     show("已保存人工复核类别");
-  };
-
-  const predictCategory = async () => {
-    setPredictingCategory(true);
-    const res = await fetch(`/api/jobs/${job.id}/predict-category`, { method:"POST" });
-    setPredictingCategory(false);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      show(data.detail || "模型预测失败，请先完成训练", "error");
-      return;
-    }
-    await refresh();
-    show(`模型预测：${data.category}（${Math.round((data.confidence || 0) * 100)}%）`);
   };
 
   // 将 jd_text 按【岗位职责】/【岗位要求】拆分为结构化段落
@@ -120,6 +126,17 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
   };
 
   const jdSections = parseJDSections(job.jd_text || job.raw_clip_text);
+  const taxonomyInfo = React.useMemo(() => {
+    try {
+      const parsed = JSON.parse(job.structured_json || "{}");
+      return {
+        reason: parsed.category_reason || "",
+        note: parsed.taxonomy_note || "",
+      };
+    } catch (_) {
+      return { reason:"", note:"" };
+    }
+  }, [job?.id, job?.structured_json]);
 
   const SectionBlock = ({ title, content }) => (
     <div style={{ marginBottom:16 }}>
@@ -224,21 +241,53 @@ function JobDetail({ job, onResume, onInterview, onBack, onNavigate }) {
             </div>
           )}
 
+          <div style={{ background:"#EEF2FF", border:"1px solid #C7D2FE", borderRadius:12, padding:"16px 20px", marginBottom:16 }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div>
+                <div style={{ fontSize:11, fontWeight:700, color:"#6366F1", textTransform:"uppercase", letterSpacing:"0.06em" }}>岗位匹配</div>
+                <div style={{fontSize:11,color:"#6B7280",marginTop:3}}>基于求职偏好与个人经历的可解释规则结果</div>
+              </div>
+              <Btn variant="outline" size="sm" onClick={runMatching} disabled={matching}>{matching ? "计算中…" : "计算此岗位匹配"}</Btn>
+            </div>
+            {matchExplanation ? <>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <span style={{fontSize:12,color:"#4B5563"}}>个人经历匹配</span>
+                <span style={{fontSize:12,fontWeight:700,color:"#4338CA"}}>{matchExplanation.score} 分 · {matchExplanation.label}</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:12}}>
+                {[['技能',matchExplanation.scores.skills],['经历',matchExplanation.scores.experience],['要求',matchExplanation.scores.requirements],['地点',matchExplanation.scores.location]].map(([label,score])=><div key={label} style={{background:"#fff",borderRadius:8,padding:"8px"}}><div style={{fontSize:10,color:"#9CA3AF"}}>{label}</div><div style={{fontSize:14,fontWeight:700,color:"#374151"}}>{score}</div></div>)}
+              </div>
+              {matchExplanation.matched_skills?.length > 0 && <div style={{fontSize:12,color:"#374151",marginBottom:6}}>已匹配：{matchExplanation.matched_skills.join('、')}</div>}
+              {matchExplanation.missing_skills?.length > 0 && <div style={{fontSize:12,color:"#92400E"}}>待补足：{matchExplanation.missing_skills.join('、')}</div>}
+              <div style={{fontSize:10,color:"#6B7280",marginTop:8}}>{matchExplanation.evidence_note}</div>
+            </> : <div style={{background:"#fff",borderRadius:8,padding:"12px",fontSize:12,color:"#6B7280"}}>先设置求职偏好并录入至少一条经历，然后点击“计算此岗位匹配”。</div>}
+            <div style={{borderTop:"1px solid #C7D2FE",marginTop:12,paddingTop:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:700,color:"#4B5563"}}>已上传简历匹配</span><Btn variant="secondary" size="sm" onClick={() => onResume(job)}>管理简历</Btn></div>
+              {resumeMatches.length ? <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>{resumeMatches.map(item=><span key={item.resume_id} style={{fontSize:11,padding:"4px 8px",borderRadius:9999,background:"#fff",color:"#374151",border:"1px solid #DDE3F5"}}>{item.name} · {Math.round(item.match_score)}%</span>)}</div> : <div style={{fontSize:11,color:"#6B7280"}}>上传 HTML/PDF 简历后，可在这里对比每份简历与当前岗位的匹配度。</div>}
+            </div>
+          </div>
+
           {categories.length > 0 && (
             <div style={{ background:"#fff", border:"1px solid #E5E7EB", borderRadius:12, padding:"16px 20px", boxShadow:"0 1px 3px rgba(0,0,0,0.06)", marginBottom:16 }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:"0.06em" }}>岗位类别复核</div>
-                <span style={{fontSize:11,color:job.category_source === "manual" ? "#059669" : "#6B7280"}}>{job.category_source === "manual" ? "人工已确认" : job.category_source === "model" ? "模型预测" : "规则建议"}</span>
+                <div style={{ fontSize:11, fontWeight:700, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:"0.06em" }}>岗位类别</div>
+                <span style={{fontSize:11,color:job.category_source === "manual" ? "#059669" : "#6B7280"}}>{job.category_source === "manual" ? "人工已确认" : job.category_source === "llm" ? "AI 分类" : "规则兜底"}</span>
               </div>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                <select value={selectedCategory} onChange={e=>setSelectedCategory(e.target.value)} style={{flex:1,minWidth:180,padding:"7px 10px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,color:"#374151",background:"#fff"}}>
-                  <option value="">请选择人工复核类别</option>
+                <select value={categorySelection} onChange={e=>setCategorySelection(e.target.value)} style={{flex:1,minWidth:180,padding:"7px 10px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,color:"#374151",background:"#fff"}}>
+                  <option value="">请选择已有类别</option>
                   {categories.map(category => <option key={category} value={category}>{category}</option>)}
+                  <option value="__custom__">输入新类别…</option>
                 </select>
+                {categorySelection === "__custom__" && <input value={customCategory} onChange={e=>setCustomCategory(e.target.value)} placeholder="输入新类别" style={{flex:1,minWidth:160,padding:"7px 10px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:12,color:"#374151"}} />}
                 <Btn variant="outline" size="sm" onClick={saveCategory} disabled={savingCategory}>{savingCategory ? "保存中…" : "确认类别"}</Btn>
-                <Btn variant="secondary" size="sm" onClick={predictCategory} disabled={predictingCategory}>{predictingCategory ? "预测中…" : "模型预测"}</Btn>
+                <Btn variant="secondary" size="sm" onClick={parseJD} disabled={parsing || !llmOk}>{parsing ? "分析中…" : "AI 重新分类"}</Btn>
               </div>
-              <div style={{fontSize:11,color:"#9CA3AF",marginTop:8}}>人工确认优先于规则和模型预测；模型未训练时会提示先完成训练。</div>
+              <div style={{fontSize:11,color:"#9CA3AF",marginTop:8}}>类别体系是开放的；八类仅是输入建议。AI 可提出新类别、合并或拆分建议，人工确认后保存。</div>
+              {(taxonomyInfo.reason || taxonomyInfo.note) && <div style={{marginTop:10,padding:"8px 10px",borderRadius:8,background:"#F8FAFC",fontSize:11,color:"#475569",lineHeight:1.6}}>
+                {taxonomyInfo.reason && <div>分类依据：{taxonomyInfo.reason}</div>}
+                {taxonomyInfo.note && <div style={{color:"#7C3AED",marginTop:3}}>体系建议：{taxonomyInfo.note}</div>}
+              </div>}
             </div>
           )}
 
