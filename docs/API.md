@@ -11,6 +11,9 @@
 - `POST /api/jobs/import/text/preview`：传入 `{ "text": "..." }`，返回一个或多个规则结构化岗位预览。
 - `POST /api/jobs/import/file/preview`：上传 TXT、PDF 或 DOCX，最大 5 MB，返回结构化预览。
 - `POST /api/jobs/import/url/preview`：传入公开 HTTP/HTTPS URL，限制 10 秒、2 MB、最多 4 次跳转，并阻止内网地址。
+- `POST /api/jobs/import/browser/start`：传入公开 HTTP/HTTPS URL，返回 `202` 和 `task_id`；本地模式会启动专用可见 Chrome，Demo 模式禁用。
+- `GET /api/jobs/import/browser/{task_id}`：轮询 `queued/opening/waiting/extracting/done/error/cancelled` 状态；完成时返回结构化岗位预览。
+- `POST /api/jobs/import/browser/{task_id}/cancel`：取消仍在运行的浏览器解析任务。
 - `POST /api/jobs/import/commit`：传入预览岗位列表，默认跳过重复岗位并分别返回 `created`、`duplicates`。
 
 ## 岗位分析
@@ -43,9 +46,9 @@
 
 前端岗位详情页提供 AI 重新分类、人工确认和自定义类别输入；批量标注及训练脚本只用于兼容实验。开放 taxonomy 的新增、合并或拆分建议会保留在 AI 解析结果中，正式调整前应由用户确认。
 
-URL 安全例外：仅 `join.qq.com` 在本地网络被映射到 `198.18.0.0/15` 测试代理段时可继续导入；该例外不适用于其他域名、本机或内网地址。
+URL 安全校验：浏览器辅助导入校验初始地址及跳转地址；本机、内网、保留 IP 和本地域名均拒绝访问。代理的 `198.18.0.0/15` Fake-IP 仅作为浏览器代理映射接受，不能使用字面 IP 访问。
 
-限制：服务端 URL 导入只解析直接返回的 HTML/纯文本。依赖浏览器 JavaScript 渲染的招聘页（包括当前腾讯招聘链接）应使用 Clipper 或手动粘贴 JD。
+前端粘贴链接默认使用浏览器辅助导入；旧 `POST /api/jobs/import/url/preview` 保留为兼容接口，仅解析直接返回的 HTML/纯文本。
 
 ## 兼容行为
 

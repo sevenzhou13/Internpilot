@@ -8,6 +8,7 @@ data/backups/
 data/raw/
 data/processed/
 data/vector_store/
+data/browser_profile/
 artifacts/models/
 venv/
 .venv/

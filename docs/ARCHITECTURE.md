@@ -5,9 +5,10 @@
 ## 当前结构
 
 ```text
-Chrome Clipper ─┐
-文件/文本/URL ──┼─> FastAPI API ─> SQLite
-React CDN 前端 ─┘       │
+Chrome Clipper ─────┐
+文件/文本 ──────────┼─> FastAPI API ─> SQLite
+公开 URL ─> 专用 Chrome ┤       │
+React CDN 前端 ─────┘       │
                         ├─> 可解释规则匹配
                         ├─> AI 开放岗位类别（已实现）
                         ├─> 岗位聚类（TF-IDF + K-Means）
@@ -20,8 +21,11 @@ React CDN 前端 ─┘       │
 - `modules/config.py`：运行模式、数据库路径和跨域来源配置。
 - `modules/matcher.py`：可解释规则匹配与分项证据；后续接入语义维度。
 - `modules/llm_client.py`：OpenAI 兼容模型配置和调用封装。
+- `modules/browser_job_importer.py`：受限公开 URL 校验、专用 Chrome 会话、可取消的单任务解析和正文提取。
 - `static/`：不需要构建步骤的 React 页面。
 - `clipper/`：Manifest V3 浏览器插件。
+
+浏览器辅助 URL 导入只在 `local` 模式启用。它使用 Git 忽略的专用配置目录保存本地会话，一次只处理一个用户主动提交的链接；出现登录或验证码时必须由用户在可见窗口中完成。
 
 ## 运行模式
 

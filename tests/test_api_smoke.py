@@ -93,6 +93,34 @@ def test_txt_file_preview(tmp_path, monkeypatch):
     assert response.json()["jobs"][0]["job_category"] == "产品/AI产品"
 
 
+def test_browser_url_preview_task_api(tmp_path, monkeypatch):
+    client = TestClient(_load_app(tmp_path, monkeypatch))
+    server = sys.modules["server"]
+    url = "https://www.zhipin.com/job_detail/example.html?securityId=test"
+    job = {
+        "title": "数据分析实习生",
+        "company": "示例公司",
+        "jd_text": "职位描述：熟悉 Python 和 SQL",
+        "duplicate_hash": "browser-preview-test",
+    }
+
+    monkeypatch.setattr(server, "start_browser_preview_task", lambda value: "task-1")
+    monkeypatch.setattr(
+        server,
+        "get_browser_preview_task",
+        lambda task_id: {"status": "done", "message": "完成", "job": job},
+    )
+
+    started = client.post("/api/jobs/import/browser/start", json={"url": url})
+    assert started.status_code == 202
+    assert started.json()["task_id"] == "task-1"
+
+    completed = client.get("/api/jobs/import/browser/task-1")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "done"
+    assert completed.json()["jobs"][0]["title"] == "数据分析实习生"
+
+
 def test_category_review_train_and_predict_api(tmp_path, monkeypatch):
     monkeypatch.setenv("INTERNPILOT_MODEL_DIR", str(tmp_path / "models"))
     client = TestClient(_load_app(tmp_path, monkeypatch))

@@ -145,7 +145,7 @@ def fetch_public_page(url: str) -> tuple[str, str]:
             if len(text.strip()) < 20:
                 raise ValueError(
                     "页面没有可解析的岗位文本；该页面可能依赖浏览器 JavaScript 渲染，"
-                    "请使用 InternPilot Clipper 或粘贴岗位 JD"
+                    "请使用浏览器辅助解析或粘贴岗位 JD"
                 )
             return text, current
     raise ValueError("页面重定向次数过多")

@@ -31,6 +31,25 @@ def get_model_artifact_dir() -> Path:
     return path if path.is_absolute() else (BASE_DIR / path).resolve()
 
 
+def get_browser_profile_dir() -> Path:
+    """返回浏览器辅助导入的专用本地配置目录。"""
+    configured = os.getenv("INTERNPILOT_BROWSER_PROFILE_DIR", "").strip()
+    if not configured:
+        return BASE_DIR / "data" / "browser_profile"
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else (BASE_DIR / path).resolve()
+
+
+def get_browser_import_timeout() -> int:
+    """返回浏览器辅助导入等待用户完成验证的秒数。"""
+    configured = os.getenv("INTERNPILOT_BROWSER_TIMEOUT", "150").strip()
+    try:
+        seconds = int(configured)
+    except ValueError:
+        seconds = 150
+    return min(max(seconds, 30), 300)
+
+
 def get_allowed_origins() -> list[str]:
     configured = os.getenv("ALLOWED_ORIGINS", "").strip()
     if configured:

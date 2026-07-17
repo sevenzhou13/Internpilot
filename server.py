@@ -17,6 +17,11 @@ from pydantic import BaseModel
 load_dotenv()
 
 from modules.clip_parser import clip_to_job_data, parse_clip_json
+from modules.browser_job_importer import (
+    cancel_browser_preview_task,
+    get_browser_preview_task,
+    start_browser_preview_task,
+)
 from modules.config import get_allowed_origins, get_app_mode
 from modules.db import (
     add_education,
@@ -508,6 +513,40 @@ def api_preview_job_url(data: UrlPreviewIn):
         return {"jobs": _mark_preview_duplicates([preview_url_job(data.url)])}
     except (ValueError, httpx.HTTPError) as exc:
         raise HTTPException(400, detail=str(exc))
+
+
+@app.post("/api/jobs/import/browser/start", status_code=202)
+def api_start_browser_job_preview(data: UrlPreviewIn):
+    if get_app_mode() == "demo":
+        raise HTTPException(403, detail="Demo 模式不启用本地浏览器辅助解析")
+    try:
+        task_id = start_browser_preview_task(data.url)
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc))
+    return {"task_id": task_id, "status": "queued"}
+
+
+@app.get("/api/jobs/import/browser/{task_id}")
+def api_get_browser_job_preview(task_id: str):
+    try:
+        task = get_browser_preview_task(task_id)
+    except KeyError:
+        raise HTTPException(404, detail="浏览器解析任务不存在或已过期")
+    result = {
+        "task_id": task_id,
+        "status": task["status"],
+        "message": task["message"],
+    }
+    if task["status"] == "done" and task.get("job"):
+        result["jobs"] = _mark_preview_duplicates([task["job"]])
+    return result
+
+
+@app.post("/api/jobs/import/browser/{task_id}/cancel")
+def api_cancel_browser_job_preview(task_id: str):
+    if not cancel_browser_preview_task(task_id):
+        raise HTTPException(404, detail="浏览器解析任务不存在或已过期")
+    return {"ok": True}
 
 
 @app.post("/api/jobs/import/commit")

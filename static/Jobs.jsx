@@ -145,6 +145,13 @@ function ImportModal({ onClose, onImported }) {
   const [batchUrl, setBatchUrl] = React.useState("");
   const [batchFile, setBatchFile] = React.useState(null);
   const [previewJobs, setPreviewJobs] = React.useState([]);
+  const [urlImportStatus, setUrlImportStatus] = React.useState("");
+  const browserTaskRef = React.useRef(null);
+
+  React.useEffect(() => () => {
+    const taskId = browserTaskRef.current;
+    if (taskId) fetch(`/api/jobs/import/browser/${taskId}/cancel`, { method:"POST" }).catch(() => null);
+  }, []);
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -200,6 +207,43 @@ function ImportModal({ onClose, onImported }) {
     show("识别成功，请确认后保存");
   };
 
+  const isBrowserAssistedUrl = (value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" || parsed.protocol === "http:";
+    } catch {
+      return false;
+    }
+  };
+
+  const loadBrowserUrlPreview = async (url) => {
+    setUrlImportStatus("正在创建浏览器解析任务…");
+    const started = await fetch("/api/jobs/import/browser/start", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ url }),
+    });
+    const startBody = await started.json();
+    if (!started.ok) throw new Error(startBody.detail || "无法启动浏览器解析");
+
+    const taskId = startBody.task_id;
+    browserTaskRef.current = taskId;
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await fetch(`/api/jobs/import/browser/${taskId}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "无法读取浏览器解析状态");
+      setUrlImportStatus(body.message || "正在等待岗位页面…");
+      if (body.status === "done") {
+        browserTaskRef.current = null;
+        return body.jobs || [];
+      }
+      if (body.status === "error" || body.status === "cancelled") {
+        browserTaskRef.current = null;
+        throw new Error(body.message || "浏览器解析未完成");
+      }
+    }
+    throw new Error("浏览器解析等待超时");
+  };
+
   const loadImportPreview = async (kind) => {
     setLoading(true);
     setPreviewJobs([]);
@@ -207,6 +251,14 @@ function ImportModal({ onClose, onImported }) {
       let res;
       if (kind === "url") {
         if (!batchUrl.trim()) { show("请输入公开岗位链接", "error"); return; }
+        if (isBrowserAssistedUrl(batchUrl.trim())) {
+          const jobs = await loadBrowserUrlPreview(batchUrl.trim());
+          setPreviewJobs(jobs);
+          setUrlImportStatus("");
+          show(`已解析 ${jobs.length} 个岗位，请确认后保存`);
+          return;
+        }
+        setUrlImportStatus("");
         res = await fetch("/api/jobs/import/url/preview", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({ url:batchUrl.trim() }),
@@ -227,6 +279,12 @@ function ImportModal({ onClose, onImported }) {
       setPreviewJobs(body.jobs || []);
       show(`已解析 ${body.jobs?.length || 0} 个岗位，请确认后保存`);
     } catch (e) {
+      const taskId = browserTaskRef.current;
+      if (taskId) {
+        fetch(`/api/jobs/import/browser/${taskId}/cancel`, { method:"POST" }).catch(() => null);
+        browserTaskRef.current = null;
+      }
+      setUrlImportStatus("");
       show("预览失败：" + e.message, "error");
     } finally {
       setLoading(false);
@@ -325,8 +383,9 @@ function ImportModal({ onClose, onImported }) {
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
                 <div><span style={lbl}>公开岗位链接</span><input style={inp} value={batchUrl} onChange={e=>setBatchUrl(e.target.value)} placeholder="https://company.example/jobs/123" /></div>
-                <Btn variant="outline" onClick={()=>loadImportPreview("url")} disabled={loading}>解析链接</Btn>
+                <Btn variant="outline" onClick={()=>loadImportPreview("url")} disabled={loading}>{urlImportStatus ? "浏览器解析中…" : "解析链接"}</Btn>
               </div>
+              {urlImportStatus && <div style={{fontSize:12,color:"#4F46E5",background:"#EEF2FF",borderRadius:8,padding:"8px 10px",lineHeight:1.5}}>{urlImportStatus}</div>}
               <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"end"}}>
                 <div><span style={lbl}>岗位文件（TXT / PDF / DOCX，最大 5 MB）</span><input type="file" accept=".txt,.pdf,.docx" onChange={e=>setBatchFile(e.target.files?.[0]||null)} style={{...inp,padding:5}} /></div>
                 <Btn variant="outline" onClick={()=>loadImportPreview("file")} disabled={loading}>解析文件</Btn>
